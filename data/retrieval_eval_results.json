@@ -1,0 +1,853 @@
+{
+    "project": "AtlasQuery",
+    "evaluation_type": "Hybrid Retrieval + Reranking",
+    "top_k": 3,
+    "metrics": {
+        "total_questions": 10,
+        "scored_questions": 9,
+        "hit_rate_at_3": 0.8889,
+        "precision_at_3": 0.5185,
+        "mean_reciprocal_rank": 0.7593,
+        "out_of_scope_questions": 1,
+        "out_of_scope_with_retrieved_results": 1
+    },
+    "results": [
+        {
+            "id": 1,
+            "question": "What is ChromaDB and what are its main features?",
+            "category": "direct",
+            "expected_sources": [
+                "chroma_guide.pdf"
+            ],
+            "expected_pages": [
+                1,
+                4
+            ],
+            "retrieved": [
+                {
+                    "rank": 1,
+                    "id": "9fd7322b1e55c7785a07328a",
+                    "source": "chroma_guide.pdf",
+                    "page": 4,
+                    "chunk_index": 0,
+                    "rerank_score": -1.0099378824234009,
+                    "relevant": true,
+                    "text_preview": "Overview Chroma is the open-source data infrastructure for AI. It comes with everything you need to get started built-in, and runs on your machine. Getting Started page Python TypeScript Chroma Chroma Python Basics Chroma Python Basics For production, Chroma offers - a fast, scalable, and serverless"
+                },
+                {
+                    "rank": 2,
+                    "id": "9951180afe3ae4e6df0dc051",
+                    "source": "chroma_guide.pdf",
+                    "page": 8,
+                    "chunk_index": 0,
+                    "rerank_score": -3.2728569507598877,
+                    "relevant": false,
+                    "text_preview": "Chroma Clients Next steps In this guide we used Chroma's for simplicity. It starts a Chroma server inmemory, so any data you ingest will be lost when your program terminates. You can use the or run Chroma in if you need data persistence. Python Learn how to to a server Join Chroma's to ask questions"
+                },
+                {
+                    "rank": 3,
+                    "id": "499aebf8cf942ac87e160535",
+                    "source": "chroma_guide.pdf",
+                    "page": 5,
+                    "chunk_index": 0,
+                    "rerank_score": -3.7038981914520264,
+                    "relevant": false,
+                    "text_preview": "Give the following prompt to Claude Code, Cursor, Codex, or your favorite AI agent. It will quickly set you up with Chroma. Install Manually Install Create a Chroma Client Python Create a collection Collections are where you'll store your embeddings, documents, and any additional metadata. Collectio"
+                }
+            ],
+            "evaluation": "HIT",
+            "latency_seconds": 3.2033,
+            "timings": {
+                "embedding_seconds": 0.0314,
+                "vector_search_seconds": 0.0067,
+                "bm25_search_seconds": 0.0361,
+                "filtering_seconds": 0.0011,
+                "fusion_seconds": 0.0002,
+                "reranking_seconds": 3.0656,
+                "retrieval_seconds": 3.2033,
+                "vector_candidates_count": 20,
+                "bm25_candidates_count": 20,
+                "vector_candidates_after_filter": 20,
+                "bm25_candidates_after_filter": 20,
+                "fused_candidates_count": 35,
+                "reranked_candidates_count": 16,
+                "selected_candidates_count": 3,
+                "top_rerank_score": -1.0099,
+                "lowest_selected_rerank_score": -3.7039,
+                "selected_sources": [
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 4,
+                        "chunk_index": 0,
+                        "rerank_score": -1.0099
+                    },
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 8,
+                        "chunk_index": 0,
+                        "rerank_score": -3.2729
+                    },
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 5,
+                        "chunk_index": 0,
+                        "rerank_score": -3.7039
+                    }
+                ]
+            }
+        },
+        {
+            "id": 2,
+            "question": "How does Chroma handle embeddings when documents are added?",
+            "category": "direct",
+            "expected_sources": [
+                "chroma_guide.pdf"
+            ],
+            "expected_pages": [
+                6,
+                11,
+                16
+            ],
+            "retrieved": [
+                {
+                    "rank": 1,
+                    "id": "da4840f09b53cdbbe9dd8bd8",
+                    "source": "chroma_guide.pdf",
+                    "page": 11,
+                    "chunk_index": 0,
+                    "rerank_score": 8.004228591918945,
+                    "relevant": true,
+                    "text_preview": "When you add documents to a collection, Chroma will embed them for you by using the collection's embedding function. Chroma will use embedding function as a default. Chroma also offers various embedding function, which you can provide upon creating a collection. For example, you can create a collect"
+                },
+                {
+                    "rank": 2,
+                    "id": "79e771231eba99b722d5f105",
+                    "source": "chroma_guide.pdf",
+                    "page": 16,
+                    "chunk_index": 0,
+                    "rerank_score": 6.451545715332031,
+                    "relevant": true,
+                    "text_preview": "Collections Learn how to add data to Chroma collections. Adding Data to Chroma Collections page Adding Data Use .add to insert new records into a collection. Each record needs a unique string id . You must provide either documents , embeddings , or both. metadatas are always optional. When only prov"
+                },
+                {
+                    "rank": 3,
+                    "id": "707e87d4dece3bdf503689e6",
+                    "source": "chroma_guide.pdf",
+                    "page": 6,
+                    "chunk_index": 0,
+                    "rerank_score": 6.008637428283691,
+                    "relevant": true,
+                    "text_preview": "retrieval and filtering. You can create a collection with a name: Python Add some text documents to the collection Chroma will store your text and handle embedding and indexing automatically. You can also customize the embedding model. You must provide unique string IDs for your documents. Python Qu"
+                }
+            ],
+            "evaluation": "HIT",
+            "latency_seconds": 0.9644,
+            "timings": {
+                "embedding_seconds": 0.0129,
+                "vector_search_seconds": 0.0046,
+                "bm25_search_seconds": 0.0011,
+                "filtering_seconds": 0.0007,
+                "fusion_seconds": 0.0001,
+                "reranking_seconds": 0.9438,
+                "retrieval_seconds": 0.9643,
+                "vector_candidates_count": 20,
+                "bm25_candidates_count": 20,
+                "vector_candidates_after_filter": 20,
+                "bm25_candidates_after_filter": 20,
+                "fused_candidates_count": 26,
+                "reranked_candidates_count": 16,
+                "selected_candidates_count": 3,
+                "top_rerank_score": 8.0042,
+                "lowest_selected_rerank_score": 6.0086,
+                "selected_sources": [
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 11,
+                        "chunk_index": 0,
+                        "rerank_score": 8.0042
+                    },
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 16,
+                        "chunk_index": 0,
+                        "rerank_score": 6.4515
+                    },
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 6,
+                        "chunk_index": 0,
+                        "rerank_score": 6.0086
+                    }
+                ]
+            }
+        },
+        {
+            "id": 3,
+            "question": "What is the difference between an in-memory client and a persistent client in Chroma?",
+            "category": "direct",
+            "expected_sources": [
+                "chroma_guide.pdf"
+            ],
+            "expected_pages": [
+                8
+            ],
+            "retrieved": [
+                {
+                    "rank": 1,
+                    "id": "9951180afe3ae4e6df0dc051",
+                    "source": "chroma_guide.pdf",
+                    "page": 8,
+                    "chunk_index": 0,
+                    "rerank_score": 1.6281821727752686,
+                    "relevant": true,
+                    "text_preview": "Chroma Clients Next steps In this guide we used Chroma's for simplicity. It starts a Chroma server inmemory, so any data you ingest will be lost when your program terminates. You can use the or run Chroma in if you need data persistence. Python Learn how to to a server Join Chroma's to ask questions"
+                },
+                {
+                    "rank": 2,
+                    "id": "a44e58dbff7d1d9c10890f10",
+                    "source": "chroma_guide.pdf",
+                    "page": 13,
+                    "chunk_index": 0,
+                    "rerank_score": -4.963748455047607,
+                    "relevant": false,
+                    "text_preview": "The get_or_create_collection function behaves similarly, but will create the collection if it doesn't exist. You can pass to it the same arguments create_collection expects, and the client will ignore them if the collection already exists. The list_collections function returns the collections you ha"
+                },
+                {
+                    "rank": 3,
+                    "id": "8043a2a8e1e9342a50971f27",
+                    "source": "chroma_guide.pdf",
+                    "page": 15,
+                    "chunk_index": 0,
+                    "rerank_score": -5.007626056671143,
+                    "relevant": false,
+                    "text_preview": "Client-Server Mode Adding Data to Chroma Collections count - returns the number of records in the collection. peek - returns the first 10 records in the collection. collection.count() collection.peek() Python TypeScript Enterprise Pricing Changelog Manage Collections - Chroma Docs"
+                }
+            ],
+            "evaluation": "HIT",
+            "latency_seconds": 1.0369,
+            "timings": {
+                "embedding_seconds": 0.0205,
+                "vector_search_seconds": 0.0037,
+                "bm25_search_seconds": 0.0011,
+                "filtering_seconds": 0.0006,
+                "fusion_seconds": 0.0,
+                "reranking_seconds": 1.0096,
+                "retrieval_seconds": 1.0368,
+                "vector_candidates_count": 20,
+                "bm25_candidates_count": 20,
+                "vector_candidates_after_filter": 20,
+                "bm25_candidates_after_filter": 20,
+                "fused_candidates_count": 32,
+                "reranked_candidates_count": 16,
+                "selected_candidates_count": 3,
+                "top_rerank_score": 1.6282,
+                "lowest_selected_rerank_score": -5.0076,
+                "selected_sources": [
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 8,
+                        "chunk_index": 0,
+                        "rerank_score": 1.6282
+                    },
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 13,
+                        "chunk_index": 0,
+                        "rerank_score": -4.9637
+                    },
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 15,
+                        "chunk_index": 0,
+                        "rerank_score": -5.0076
+                    }
+                ]
+            }
+        },
+        {
+            "id": 4,
+            "question": "How do embeddings and vector search work together in semantic search?",
+            "category": "conceptual",
+            "expected_sources": [
+                "embeddings_guide.pdf",
+                "chroma_guide.pdf"
+            ],
+            "expected_pages": [
+                1,
+                9
+            ],
+            "retrieved": [
+                {
+                    "rank": 1,
+                    "id": "15bb99680b4074c73b370ed9",
+                    "source": "embeddings_guide.pdf",
+                    "page": 9,
+                    "chunk_index": 1,
+                    "rerank_score": 6.272308349609375,
+                    "relevant": true,
+                    "text_preview": "The idea behind semantic search is to embed all entries in your corpus, whether they be sentences, paragraphs, or documents, into a vector space. At search time, the query is embedded into the same vector space and the closest embeddings from your corpus are found. These entries should have a high s"
+                },
+                {
+                    "rank": 2,
+                    "id": "00b8939c38d6e368b3608dad",
+                    "source": "embeddings_guide.pdf",
+                    "page": 15,
+                    "chunk_index": 0,
+                    "rerank_score": 5.188270568847656,
+                    "relevant": false,
+                    "text_preview": "OpenSearch OpenSearch is a community-driven, open-source search engine that supports vector search capabilities. It allows you to index dense vectors and perform efficient similarity search using approximate nearest neighbor algorithms. OpenSearch can be used to implement both traditional keyword-ba"
+                },
+                {
+                    "rank": 3,
+                    "id": "acaf2cdd8b84f4a7b891ec0a",
+                    "source": "chroma_guide.pdf",
+                    "page": 1,
+                    "chunk_index": 0,
+                    "rerank_score": 3.2103464603424072,
+                    "relevant": true,
+                    "text_preview": "page Chroma gives you everything you need for retrieval: store embeddings with metadata, search with dense and sparse vectors, filter by metadata, and retrieve across text, images, and more. What Chroma Offers Document Storage Store documents and metadata. Embeddings Use any embedding model. OpenAI,"
+                }
+            ],
+            "evaluation": "HIT",
+            "latency_seconds": 1.2881,
+            "timings": {
+                "embedding_seconds": 0.0152,
+                "vector_search_seconds": 0.003,
+                "bm25_search_seconds": 0.0007,
+                "filtering_seconds": 0.0004,
+                "fusion_seconds": 0.0,
+                "reranking_seconds": 1.2676,
+                "retrieval_seconds": 1.2881,
+                "vector_candidates_count": 20,
+                "bm25_candidates_count": 20,
+                "vector_candidates_after_filter": 20,
+                "bm25_candidates_after_filter": 20,
+                "fused_candidates_count": 25,
+                "reranked_candidates_count": 16,
+                "selected_candidates_count": 3,
+                "top_rerank_score": 6.2723,
+                "lowest_selected_rerank_score": 3.2103,
+                "selected_sources": [
+                    {
+                        "source": "embeddings_guide.pdf",
+                        "page": 9,
+                        "chunk_index": 1,
+                        "rerank_score": 6.2723
+                    },
+                    {
+                        "source": "embeddings_guide.pdf",
+                        "page": 15,
+                        "chunk_index": 0,
+                        "rerank_score": 5.1883
+                    },
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 1,
+                        "chunk_index": 0,
+                        "rerank_score": 3.2103
+                    }
+                ]
+            }
+        },
+        {
+            "id": 5,
+            "question": "How can documents be added to a Chroma collection?",
+            "category": "direct",
+            "expected_sources": [
+                "chroma_guide.pdf"
+            ],
+            "expected_pages": [
+                6,
+                16
+            ],
+            "retrieved": [
+                {
+                    "rank": 1,
+                    "id": "da4840f09b53cdbbe9dd8bd8",
+                    "source": "chroma_guide.pdf",
+                    "page": 11,
+                    "chunk_index": 0,
+                    "rerank_score": 8.239126205444336,
+                    "relevant": false,
+                    "text_preview": "When you add documents to a collection, Chroma will embed them for you by using the collection's embedding function. Chroma will use embedding function as a default. Chroma also offers various embedding function, which you can provide upon creating a collection. For example, you can create a collect"
+                },
+                {
+                    "rank": 2,
+                    "id": "79e771231eba99b722d5f105",
+                    "source": "chroma_guide.pdf",
+                    "page": 16,
+                    "chunk_index": 0,
+                    "rerank_score": 8.214956283569336,
+                    "relevant": true,
+                    "text_preview": "Collections Learn how to add data to Chroma collections. Adding Data to Chroma Collections page Adding Data Use .add to insert new records into a collection. Each record needs a unique string id . You must provide either documents , embeddings , or both. metadatas are always optional. When only prov"
+                },
+                {
+                    "rank": 3,
+                    "id": "707e87d4dece3bdf503689e6",
+                    "source": "chroma_guide.pdf",
+                    "page": 6,
+                    "chunk_index": 0,
+                    "rerank_score": 6.940350532531738,
+                    "relevant": true,
+                    "text_preview": "retrieval and filtering. You can create a collection with a name: Python Add some text documents to the collection Chroma will store your text and handle embedding and indexing automatically. You can also customize the embedding model. You must provide unique string IDs for your documents. Python Qu"
+                }
+            ],
+            "evaluation": "HIT",
+            "latency_seconds": 0.7977,
+            "timings": {
+                "embedding_seconds": 0.0145,
+                "vector_search_seconds": 0.0029,
+                "bm25_search_seconds": 0.0008,
+                "filtering_seconds": 0.0004,
+                "fusion_seconds": 0.0,
+                "reranking_seconds": 0.778,
+                "retrieval_seconds": 0.7976,
+                "vector_candidates_count": 20,
+                "bm25_candidates_count": 20,
+                "vector_candidates_after_filter": 20,
+                "bm25_candidates_after_filter": 20,
+                "fused_candidates_count": 26,
+                "reranked_candidates_count": 16,
+                "selected_candidates_count": 3,
+                "top_rerank_score": 8.2391,
+                "lowest_selected_rerank_score": 6.9404,
+                "selected_sources": [
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 11,
+                        "chunk_index": 0,
+                        "rerank_score": 8.2391
+                    },
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 16,
+                        "chunk_index": 0,
+                        "rerank_score": 8.215
+                    },
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 6,
+                        "chunk_index": 0,
+                        "rerank_score": 6.9404
+                    }
+                ]
+            }
+        },
+        {
+            "id": 6,
+            "question": "What is the purpose of reranking in a retrieval system?",
+            "category": "conceptual",
+            "expected_sources": [
+                "embeddings_guide.pdf",
+                "rag_research_paper.pdf"
+            ],
+            "expected_pages": [
+                9,
+                15
+            ],
+            "retrieved": [
+                {
+                    "rank": 1,
+                    "id": "bd0cdb5872a3f9da096ed1a1",
+                    "source": "embeddings_guide.pdf",
+                    "page": 17,
+                    "chunk_index": 0,
+                    "rerank_score": 0.7151883840560913,
+                    "relevant": false,
+                    "text_preview": "Question & Answer Retrieval semantic_search_wikipedia_qa.py [ Colab Version ]: This example uses a model that was trained on the Natural Questions dataset. It consists of about 100k real Google search queries, together with an annotated passage from Wikipedia that provides the answer. It is an examp"
+                },
+                {
+                    "rank": 2,
+                    "id": "9be8b106ce899f87c6ed3a9a",
+                    "source": "rag_research_paper.pdf",
+                    "page": 8,
+                    "chunk_index": 3,
+                    "rerank_score": -3.103400707244873,
+                    "relevant": false,
+                    "text_preview": "Single-Task Retrieval Prior work has shown that retrieval improves performance across a variety of NLP tasks when considered in isolation. Such tasks include open-domain question answering [5, 29], fact checking [56], fact completion [48], long-form question answering [12], Wikipedia article generat"
+                },
+                {
+                    "rank": 3,
+                    "id": "92270f0888e81ddd4fd5f530",
+                    "source": "rag_research_paper.pdf",
+                    "page": 9,
+                    "chunk_index": 0,
+                    "rerank_score": -4.55485200881958,
+                    "relevant": true,
+                    "text_preview": "General-Purpose Architectures for NLP Prior work on general-purpose architectures for NLP tasks has shown great success without the use of retrieval. A single, pre-trained language model has been shown to achieve strong performance on various classification tasks in the GLUE benchmarks [60, 61] afte"
+                }
+            ],
+            "evaluation": "HIT",
+            "latency_seconds": 1.0433,
+            "timings": {
+                "embedding_seconds": 0.0145,
+                "vector_search_seconds": 0.004,
+                "bm25_search_seconds": 0.0009,
+                "filtering_seconds": 0.0007,
+                "fusion_seconds": 0.0001,
+                "reranking_seconds": 1.022,
+                "retrieval_seconds": 1.0432,
+                "vector_candidates_count": 20,
+                "bm25_candidates_count": 20,
+                "vector_candidates_after_filter": 20,
+                "bm25_candidates_after_filter": 20,
+                "fused_candidates_count": 33,
+                "reranked_candidates_count": 16,
+                "selected_candidates_count": 3,
+                "top_rerank_score": 0.7152,
+                "lowest_selected_rerank_score": -4.5549,
+                "selected_sources": [
+                    {
+                        "source": "embeddings_guide.pdf",
+                        "page": 17,
+                        "chunk_index": 0,
+                        "rerank_score": 0.7152
+                    },
+                    {
+                        "source": "rag_research_paper.pdf",
+                        "page": 8,
+                        "chunk_index": 3,
+                        "rerank_score": -3.1034
+                    },
+                    {
+                        "source": "rag_research_paper.pdf",
+                        "page": 9,
+                        "chunk_index": 0,
+                        "rerank_score": -4.5549
+                    }
+                ]
+            }
+        },
+        {
+            "id": 7,
+            "question": "Explain the role of a retriever in a Retrieval-Augmented Generation system.",
+            "category": "conceptual",
+            "expected_sources": [
+                "rag_research_paper.pdf"
+            ],
+            "expected_pages": [
+                5,
+                7
+            ],
+            "retrieved": [
+                {
+                    "rank": 1,
+                    "id": "8900dadd7450a844637191a4",
+                    "source": "rag_research_paper.pdf",
+                    "page": 1,
+                    "chunk_index": 0,
+                    "rerank_score": 2.3320846557617188,
+                    "relevant": false,
+                    "text_preview": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks Patrick Lewis†‡, Ethan Perez⋆, Aleksandra Piktus†, Fabio Petroni†, Vladimir Karpukhin†, Naman Goyal†, Heinrich Küttler†, Mike Lewis†, Wen-tau Yih†, Tim Rocktäschel†‡, Sebastian Riedel†‡, Douwe Kiela† †Facebook AI Research; ‡University "
+                },
+                {
+                    "rank": 2,
+                    "id": "d18705c049ba0332193aecdf",
+                    "source": "rag_research_paper.pdf",
+                    "page": 1,
+                    "chunk_index": 1,
+                    "rerank_score": 1.1322927474975586,
+                    "relevant": false,
+                    "text_preview": "Large pre-trained language models have been shown to store factual knowledge in their parameters, and achieve state-of-the-art results when fine-tuned on downstream NLP tasks. However, their ability to access and precisely manipulate knowledge is still limited, and hence on knowledge-intensive tasks"
+                },
+                {
+                    "rank": 3,
+                    "id": "9be8b106ce899f87c6ed3a9a",
+                    "source": "rag_research_paper.pdf",
+                    "page": 8,
+                    "chunk_index": 3,
+                    "rerank_score": -0.00971558690071106,
+                    "relevant": false,
+                    "text_preview": "Single-Task Retrieval Prior work has shown that retrieval improves performance across a variety of NLP tasks when considered in isolation. Such tasks include open-domain question answering [5, 29], fact checking [56], fact completion [48], long-form question answering [12], Wikipedia article generat"
+                }
+            ],
+            "evaluation": "MISS",
+            "latency_seconds": 1.0687,
+            "timings": {
+                "embedding_seconds": 0.0162,
+                "vector_search_seconds": 0.0032,
+                "bm25_search_seconds": 0.001,
+                "filtering_seconds": 0.0002,
+                "fusion_seconds": 0.0001,
+                "reranking_seconds": 1.0467,
+                "retrieval_seconds": 1.0687,
+                "vector_candidates_count": 20,
+                "bm25_candidates_count": 20,
+                "vector_candidates_after_filter": 20,
+                "bm25_candidates_after_filter": 20,
+                "fused_candidates_count": 27,
+                "reranked_candidates_count": 16,
+                "selected_candidates_count": 3,
+                "top_rerank_score": 2.3321,
+                "lowest_selected_rerank_score": -0.0097,
+                "selected_sources": [
+                    {
+                        "source": "rag_research_paper.pdf",
+                        "page": 1,
+                        "chunk_index": 0,
+                        "rerank_score": 2.3321
+                    },
+                    {
+                        "source": "rag_research_paper.pdf",
+                        "page": 1,
+                        "chunk_index": 1,
+                        "rerank_score": 1.1323
+                    },
+                    {
+                        "source": "rag_research_paper.pdf",
+                        "page": 8,
+                        "chunk_index": 3,
+                        "rerank_score": -0.0097
+                    }
+                ]
+            }
+        },
+        {
+            "id": 8,
+            "question": "What is the capital of Japan?",
+            "category": "out_of_scope",
+            "expected_sources": [],
+            "expected_pages": [],
+            "retrieved": [
+                {
+                    "rank": 1,
+                    "id": "406033bde6b75ca31a558f88",
+                    "source": "embeddings_guide.pdf",
+                    "page": 7,
+                    "chunk_index": 0,
+                    "rerank_score": -10.110640525817871,
+                    "relevant": false,
+                    "text_preview": "Other useful methods and links: MultiVectorEncoder > Usage MultiVectorEncoder > Speeding up Inference MultiVectorEncoder > Pretrained Models MultiVectorEncoder > Training Overview MultiVectorEncoder > Loss Overview Tip Log in with hf auth login for higher Hugging Face Hub rate limits and access Mul"
+                },
+                {
+                    "rank": 2,
+                    "id": "09cbcef0a52c265f2c9a3d0a",
+                    "source": "rag_research_paper.pdf",
+                    "page": 7,
+                    "chunk_index": 2,
+                    "rerank_score": -11.136713027954102,
+                    "relevant": false,
+                    "text_preview": "?The middle ear is the part of the ear between the middle ear and the nose. RAG-T The middle ear is the portion of the ear internal to the eardrum. RAG-S The middle ear includes the tympanic cavity and the three ossicles. what currency needed in scotland\n\nThe currency needed in Scotland is Pound ste"
+                },
+                {
+                    "rank": 3,
+                    "id": "97a6ce4c3d9655becb950065",
+                    "source": "rag_research_paper.pdf",
+                    "page": 5,
+                    "chunk_index": 2,
+                    "rerank_score": -11.1646146774292,
+                    "relevant": false,
+                    "text_preview": "4.1 Open-domain Question Answering Table 1 shows results for RAG along with state-of-the-art models. On all four open-domain QA tasks, RAG sets a new state of the art (only on the T5-comparable split for TQA). RAG combines the generation flexibility of the \"closed-book\" (parametric only) approaches "
+                }
+            ],
+            "evaluation": "OUT-OF-SCOPE: RESULTS RETURNED - REVIEW REQUIRED",
+            "latency_seconds": 1.0148,
+            "timings": {
+                "embedding_seconds": 0.0117,
+                "vector_search_seconds": 0.003,
+                "bm25_search_seconds": 0.0005,
+                "filtering_seconds": 0.0004,
+                "fusion_seconds": 0.0,
+                "reranking_seconds": 0.9983,
+                "retrieval_seconds": 1.0148,
+                "vector_candidates_count": 20,
+                "bm25_candidates_count": 20,
+                "vector_candidates_after_filter": 20,
+                "bm25_candidates_after_filter": 20,
+                "fused_candidates_count": 36,
+                "reranked_candidates_count": 16,
+                "selected_candidates_count": 3,
+                "top_rerank_score": -10.1106,
+                "lowest_selected_rerank_score": -11.1646,
+                "selected_sources": [
+                    {
+                        "source": "embeddings_guide.pdf",
+                        "page": 7,
+                        "chunk_index": 0,
+                        "rerank_score": -10.1106
+                    },
+                    {
+                        "source": "rag_research_paper.pdf",
+                        "page": 7,
+                        "chunk_index": 2,
+                        "rerank_score": -11.1367
+                    },
+                    {
+                        "source": "rag_research_paper.pdf",
+                        "page": 5,
+                        "chunk_index": 2,
+                        "rerank_score": -11.1646
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9,
+            "question": "Explain how Chroma collections store documents and metadata.",
+            "category": "direct",
+            "expected_sources": [
+                "chroma_guide.pdf"
+            ],
+            "expected_pages": [
+                1,
+                5,
+                16
+            ],
+            "retrieved": [
+                {
+                    "rank": 1,
+                    "id": "79e771231eba99b722d5f105",
+                    "source": "chroma_guide.pdf",
+                    "page": 16,
+                    "chunk_index": 0,
+                    "rerank_score": 7.685853004455566,
+                    "relevant": true,
+                    "text_preview": "Collections Learn how to add data to Chroma collections. Adding Data to Chroma Collections page Adding Data Use .add to insert new records into a collection. Each record needs a unique string id . You must provide either documents , embeddings , or both. metadatas are always optional. When only prov"
+                },
+                {
+                    "rank": 2,
+                    "id": "acaf2cdd8b84f4a7b891ec0a",
+                    "source": "chroma_guide.pdf",
+                    "page": 1,
+                    "chunk_index": 0,
+                    "rerank_score": 7.023165225982666,
+                    "relevant": true,
+                    "text_preview": "page Chroma gives you everything you need for retrieval: store embeddings with metadata, search with dense and sparse vectors, filter by metadata, and retrieve across text, images, and more. What Chroma Offers Document Storage Store documents and metadata. Embeddings Use any embedding model. OpenAI,"
+                },
+                {
+                    "rank": 3,
+                    "id": "499aebf8cf942ac87e160535",
+                    "source": "chroma_guide.pdf",
+                    "page": 5,
+                    "chunk_index": 0,
+                    "rerank_score": 6.1503801345825195,
+                    "relevant": true,
+                    "text_preview": "Give the following prompt to Claude Code, Cursor, Codex, or your favorite AI agent. It will quickly set you up with Chroma. Install Manually Install Create a Chroma Client Python Create a collection Collections are where you'll store your embeddings, documents, and any additional metadata. Collectio"
+                }
+            ],
+            "evaluation": "HIT",
+            "latency_seconds": 0.8037,
+            "timings": {
+                "embedding_seconds": 0.0176,
+                "vector_search_seconds": 0.0036,
+                "bm25_search_seconds": 0.0006,
+                "filtering_seconds": 0.0004,
+                "fusion_seconds": 0.0,
+                "reranking_seconds": 0.7803,
+                "retrieval_seconds": 0.8036,
+                "vector_candidates_count": 20,
+                "bm25_candidates_count": 20,
+                "vector_candidates_after_filter": 20,
+                "bm25_candidates_after_filter": 20,
+                "fused_candidates_count": 24,
+                "reranked_candidates_count": 16,
+                "selected_candidates_count": 3,
+                "top_rerank_score": 7.6859,
+                "lowest_selected_rerank_score": 6.1504,
+                "selected_sources": [
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 16,
+                        "chunk_index": 0,
+                        "rerank_score": 7.6859
+                    },
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 1,
+                        "chunk_index": 0,
+                        "rerank_score": 7.0232
+                    },
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 5,
+                        "chunk_index": 0,
+                        "rerank_score": 6.1504
+                    }
+                ]
+            }
+        },
+        {
+            "id": 10,
+            "question": "What is approximate nearest neighbor search and why is it useful?",
+            "category": "conceptual",
+            "expected_sources": [
+                "embeddings_guide.pdf"
+            ],
+            "expected_pages": [
+                15
+            ],
+            "retrieved": [
+                {
+                    "rank": 1,
+                    "id": "00b8939c38d6e368b3608dad",
+                    "source": "embeddings_guide.pdf",
+                    "page": 15,
+                    "chunk_index": 0,
+                    "rerank_score": 5.5323004722595215,
+                    "relevant": true,
+                    "text_preview": "OpenSearch OpenSearch is a community-driven, open-source search engine that supports vector search capabilities. It allows you to index dense vectors and perform efficient similarity search using approximate nearest neighbor algorithms. OpenSearch can be used to implement both traditional keyword-ba"
+                },
+                {
+                    "rank": 2,
+                    "id": "f917e4132789adf0df805da3",
+                    "source": "chroma_guide.pdf",
+                    "page": 20,
+                    "chunk_index": 0,
+                    "rerank_score": -3.8364181518554688,
+                    "relevant": false,
+                    "text_preview": "Querying Collections Learn how to query and retrieve data from Chroma collections. Query and Get page The Query API enables nearest-neighbor similarity search over dense embeddings. Use the Get API when you want to retrieve records without similarity ranking. Python TypeScript Query You can query a "
+                },
+                {
+                    "rank": 3,
+                    "id": "a0fdb9f23517ea1df45d76de",
+                    "source": "embeddings_guide.pdf",
+                    "page": 14,
+                    "chunk_index": 0,
+                    "rerank_score": -4.6967339515686035,
+                    "relevant": false,
+                    "text_preview": "query_chunk_size (int, optional) - Process 100 queries simultaneously. Increasing that value increases the speed, but requires more memory. Defaults to 100. corpus_chunk_size (int, optional) - Scans the corpus 500k entries at a time. Increasing that value increases the speed, but requires more memor"
+                }
+            ],
+            "evaluation": "HIT",
+            "latency_seconds": 1.0436,
+            "timings": {
+                "embedding_seconds": 0.0161,
+                "vector_search_seconds": 0.0035,
+                "bm25_search_seconds": 0.0007,
+                "filtering_seconds": 0.0006,
+                "fusion_seconds": 0.0,
+                "reranking_seconds": 1.0214,
+                "retrieval_seconds": 1.0435,
+                "vector_candidates_count": 20,
+                "bm25_candidates_count": 20,
+                "vector_candidates_after_filter": 20,
+                "bm25_candidates_after_filter": 20,
+                "fused_candidates_count": 30,
+                "reranked_candidates_count": 16,
+                "selected_candidates_count": 3,
+                "top_rerank_score": 5.5323,
+                "lowest_selected_rerank_score": -4.6967,
+                "selected_sources": [
+                    {
+                        "source": "embeddings_guide.pdf",
+                        "page": 15,
+                        "chunk_index": 0,
+                        "rerank_score": 5.5323
+                    },
+                    {
+                        "source": "chroma_guide.pdf",
+                        "page": 20,
+                        "chunk_index": 0,
+                        "rerank_score": -3.8364
+                    },
+                    {
+                        "source": "embeddings_guide.pdf",
+                        "page": 14,
+                        "chunk_index": 0,
+                        "rerank_score": -4.6967
+                    }
+                ]
+            }
+        }
+    ]
+}

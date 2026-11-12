@@ -1,0 +1,119 @@
+[
+    {
+        "id": 1,
+        "question": "What is ChromaDB and what are its main features?",
+        "expected_sources": [
+            "chroma_guide.pdf"
+        ],
+        "expected_pages": [
+            1,
+            4
+        ],
+        "category": "direct"
+    },
+    {
+        "id": 2,
+        "question": "How does Chroma handle embeddings when documents are added?",
+        "expected_sources": [
+            "chroma_guide.pdf"
+        ],
+        "expected_pages": [
+            6,
+            11,
+            16
+        ],
+        "category": "direct"
+    },
+    {
+        "id": 3,
+        "question": "What is the difference between an in-memory client and a persistent client in Chroma?",
+        "expected_sources": [
+            "chroma_guide.pdf"
+        ],
+        "expected_pages": [
+            8
+        ],
+        "category": "direct"
+    },
+    {
+        "id": 4,
+        "question": "How do embeddings and vector search work together in semantic search?",
+        "expected_sources": [
+            "embeddings_guide.pdf",
+            "chroma_guide.pdf"
+        ],
+        "expected_pages": [
+            1,
+            9
+        ],
+        "category": "conceptual"
+    },
+    {
+        "id": 5,
+        "question": "How can documents be added to a Chroma collection?",
+        "expected_sources": [
+            "chroma_guide.pdf"
+        ],
+        "expected_pages": [
+            6,
+            16
+        ],
+        "category": "direct"
+    },
+    {
+        "id": 6,
+        "question": "What is the purpose of reranking in a retrieval system?",
+        "expected_sources": [
+            "embeddings_guide.pdf",
+            "rag_research_paper.pdf"
+        ],
+        "expected_pages": [
+            9,
+            15
+        ],
+        "category": "conceptual"
+    },
+    {
+        "id": 7,
+        "question": "Explain the role of a retriever in a Retrieval-Augmented Generation system.",
+        "expected_sources": [
+            "rag_research_paper.pdf"
+        ],
+        "expected_pages": [
+            5,
+            7
+        ],
+        "category": "conceptual"
+    },
+    {
+        "id": 8,
+        "question": "What is the capital of Japan?",
+        "expected_sources": [],
+        "expected_pages": [],
+        "category": "out_of_scope"
+    },
+    {
+        "id": 9,
+        "question": "Explain how Chroma collections store documents and metadata.",
+        "expected_sources": [
+            "chroma_guide.pdf"
+        ],
+        "expected_pages": [
+            1,
+            5,
+            16
+        ],
+        "category": "direct"
+    },
+    {
+        "id": 10,
+        "question": "What is approximate nearest neighbor search and why is it useful?",
+        "expected_sources": [
+            "embeddings_guide.pdf"
+        ],
+        "expected_pages": [
+            15
+        ],
+        "category": "conceptual"
+    }
+]
