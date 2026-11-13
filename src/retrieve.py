@@ -8,7 +8,8 @@ from time import perf_counter
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from rank_bm25 import BM25Okapi
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
+
 
 load_dotenv()
 
@@ -31,11 +32,6 @@ EMBEDDING_MODEL = os.getenv(
     "all-MiniLM-L6-v2"
 )
 
-RERANKER_MODEL = os.getenv(
-    "RERANKER_MODEL",
-    "cross-encoder/ms-marco-MiniLM-L-6-v2"
-)
-
 VECTOR_SIZE = 384
 
 DEFAULT_TOP_K = int(os.getenv("TOP_K", "3"))
@@ -45,12 +41,9 @@ RRF_K = 60
 
 FILTER_REFERENCE_CHUNKS = True
 
-# Disabled by default to reduce memory usage on free hosting.
-ENABLE_RERANKER = (
-    os.getenv("ENABLE_RERANKER", "false").lower() == "true"
-)
+# Reranking remains disabled on the free hosting instance.
+ENABLE_RERANKER = False
 
-# Limit CPU thread usage on small instances.
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
@@ -93,45 +86,30 @@ def check_collection():
 
 
 # ==================================================
-# MODELS
+# FASTEMBED MODEL
 # ==================================================
+
+def get_fastembed_model_name():
+
+    if EMBEDDING_MODEL.startswith("sentence-transformers/"):
+        return EMBEDDING_MODEL
+
+    return f"sentence-transformers/{EMBEDDING_MODEL}"
+
 
 @lru_cache(maxsize=1)
 def get_embedder():
 
+    model_name = get_fastembed_model_name()
+
     logger.info(
-        "Loading embedding model: %s",
-        EMBEDDING_MODEL
+        "Loading FastEmbed model: %s",
+        model_name
     )
 
-    model = SentenceTransformer(
-        EMBEDDING_MODEL,
-        device="cpu"
-    )
-
-    try:
-        import torch
-        torch.set_num_threads(1)
-    except Exception:
-        pass
-
-    return model
-
-
-@lru_cache(maxsize=1)
-def get_reranker():
-
-    if not ENABLE_RERANKER:
-        return None
-
-    logger.info("Loading CrossEncoder reranker.")
-
-    # Imported only when reranking is explicitly enabled.
-    from sentence_transformers import CrossEncoder
-
-    return CrossEncoder(
-        RERANKER_MODEL,
-        device="cpu"
+    return TextEmbedding(
+        model_name=model_name,
+        threads=1
     )
 
 
@@ -147,6 +125,11 @@ def tokenize(text: str) -> list[str]:
 def normalize_text(text: str) -> str:
 
     return " ".join(text.lower().split())
+
+
+def time_elapsed(start):
+
+    return perf_counter() - start
 
 
 # ==================================================
@@ -397,11 +380,13 @@ def vector_search(question, candidate_k):
 
     embedding_start = perf_counter()
 
-    vector = embedder.encode(
-        question,
-        normalize_embeddings=True,
-        show_progress_bar=False
-    ).tolist()
+    # FastEmbed generates a 384-dimensional embedding.
+    # Qdrant uses cosine similarity for retrieval.
+    embedding = next(
+        embedder.embed([question])
+    )
+
+    vector = embedding.tolist()
 
     embedding_seconds = (
         perf_counter() - embedding_start
@@ -529,7 +514,6 @@ def reciprocal_rank_fusion(
             if document_id not in fused:
 
                 fused[document_id] = dict(candidate)
-
                 fused[document_id]["rrf_score"] = 0.0
 
             fused[document_id]["rrf_score"] += (
@@ -544,41 +528,15 @@ def reciprocal_rank_fusion(
 
 
 # ==================================================
-# OPTIONAL CROSS-ENCODER RERANKING
+# OPTIONAL RERANKING
 # ==================================================
 
 def rerank_candidates(question, candidates, top_k):
 
-    if not candidates:
-        return []
+    # CrossEncoder is intentionally not loaded.
+    # This avoids bringing PyTorch into the hosted backend.
 
-    reranker = get_reranker()
-
-    if reranker is None:
-        return candidates[:top_k]
-
-    pairs = [
-        (question, candidate["text"])
-        for candidate in candidates
-    ]
-
-    scores = reranker.predict(
-        pairs,
-        show_progress_bar=False,
-        batch_size=4
-    )
-
-    for candidate, score in zip(candidates, scores):
-
-        candidate["rerank_score"] = float(score)
-
-    ranked = sorted(
-        candidates,
-        key=lambda item: item["rerank_score"],
-        reverse=True
-    )
-
-    return ranked[:top_k]
+    return candidates[:top_k]
 
 
 # ==================================================
@@ -673,22 +631,15 @@ def retrieve(
         4
     )
 
-    # 4. Reranking
-    # Automatically bypassed when ENABLE_RERANKER=false.
+    # 4. Reranking disabled
 
     rerank_start = perf_counter()
 
-    if use_reranker and ENABLE_RERANKER and candidates:
-
-        candidates = rerank_candidates(
-            question,
-            candidates,
-            top_k
-        )
-
-    else:
-
-        candidates = candidates[:top_k]
+    candidates = rerank_candidates(
+        question,
+        candidates,
+        top_k
+    )
 
     timings["reranking_seconds"] = round(
         time_elapsed(rerank_start),
@@ -701,25 +652,13 @@ def retrieve(
     )
 
     timings["vector_candidates"] = len(vector_results)
-
     timings["keyword_candidates"] = len(keyword_results)
-
-    timings["reranker_enabled"] = ENABLE_RERANKER
+    timings["reranker_enabled"] = False
 
     if return_timings:
         return candidates, timings
 
     return candidates
-
-
-# ==================================================
-# TIMING UTILITY
-# ==================================================
-
-def time_elapsed(start):
-
-    return perf_counter() - start
-
 
 
 # ==================================================
@@ -729,14 +668,12 @@ def time_elapsed(start):
 if __name__ == "__main__":
 
     import sys
-    import logging
 
     logging.basicConfig(
         level=logging.WARNING,
         format="%(levelname)s: %(message)s"
     )
 
-    # Suppress noisy HTTP logs.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("qdrant_client").setLevel(logging.WARNING)
@@ -748,7 +685,7 @@ if __name__ == "__main__":
     print("Qdrant connection successful.", flush=True)
     print("Collection:", COLLECTION_NAME, flush=True)
     print("Indexed points:", info["points_count"], flush=True)
-    print("Reranker enabled:", ENABLE_RERANKER, flush=True)
+    print("Reranker enabled: False", flush=True)
 
     if info["points_count"] == 0:
 
@@ -761,10 +698,12 @@ if __name__ == "__main__":
         question = input("Question: ").strip()
 
     except (EOFError, KeyboardInterrupt):
+
         print("\nInput cancelled.")
         sys.exit(0)
 
     if not question:
+
         print("Please enter a valid question.")
         sys.exit(0)
 
@@ -794,4 +733,3 @@ if __name__ == "__main__":
 
     for key, value in timings.items():
         print(f"{key}: {value}")
-

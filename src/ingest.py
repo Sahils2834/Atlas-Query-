@@ -7,7 +7,7 @@ from pathlib import Path
 import fitz
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient, models
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 
 
 load_dotenv()
@@ -21,7 +21,7 @@ DATA_DIR = BASE_DIR / "data"
 
 COLLECTION_NAME = os.getenv(
     "QDRANT_COLLECTION",
-    "rag_documents_v2"
+    "atlasquery_documents"
 )
 
 EMBEDDING_MODEL = os.getenv(
@@ -37,14 +37,27 @@ CHUNK_OVERLAP_WORDS = int(
     os.getenv("CHUNK_OVERLAP_WORDS", "60")
 )
 
-# Smaller batches reduce peak memory usage.
-BATCH_SIZE = int(os.getenv("INGEST_BATCH_SIZE", "16"))
+BATCH_SIZE = int(
+    os.getenv("INGEST_BATCH_SIZE", "16")
+)
 
 VECTOR_SIZE = 384
 
 SKIP_REFERENCES = True
 
 MIN_CHUNK_WORDS = 35
+
+
+# --------------------------------------------------
+# FASTEMBED MODEL NAME
+# --------------------------------------------------
+
+def get_fastembed_model_name():
+
+    if EMBEDDING_MODEL.startswith("sentence-transformers/"):
+        return EMBEDDING_MODEL
+
+    return f"sentence-transformers/{EMBEDDING_MODEL}"
 
 
 # --------------------------------------------------
@@ -57,6 +70,7 @@ def get_qdrant_client():
     api_key = os.getenv("QDRANT_API_KEY")
 
     if not url or not api_key:
+
         raise ValueError(
             "QDRANT_URL and QDRANT_API_KEY must be configured."
         )
@@ -104,6 +118,7 @@ def clean_text(text):
 def extract_pdf_pages(pdf_path):
 
     try:
+
         with fitz.open(pdf_path) as document:
 
             for page_number, page in enumerate(
@@ -244,6 +259,7 @@ def ensure_collection(client):
             vector_config,
             models.VectorParams
         ):
+
             raise ValueError(
                 "The existing collection does not use "
                 "a single unnamed dense vector."
@@ -344,13 +360,19 @@ def upload_batch(
         for record in records
     ]
 
-    embeddings = embedding_model.encode(
-        texts,
-        batch_size=BATCH_SIZE,
-        normalize_embeddings=True,
-        show_progress_bar=False,
-        convert_to_numpy=True
+    # Generate embeddings using FastEmbed.
+    embeddings = list(
+        embedding_model.embed(
+            texts,
+            batch_size=BATCH_SIZE
+        )
     )
+
+    if len(embeddings) != len(records):
+
+        raise RuntimeError(
+            "Embedding count does not match record count."
+        )
 
     points = []
 
@@ -359,10 +381,19 @@ def upload_batch(
         embeddings
     ):
 
+        vector = embedding.tolist()
+
+        if len(vector) != VECTOR_SIZE:
+
+            raise RuntimeError(
+                f"Expected {VECTOR_SIZE} dimensions, "
+                f"received {len(vector)}."
+            )
+
         points.append(
             models.PointStruct(
                 id=record["id"],
-                vector=embedding.tolist(),
+                vector=vector,
                 payload={
                     "text": record["text"],
                     "source": record["source"],
@@ -409,11 +440,11 @@ def main():
 
     ensure_collection(client)
 
-    print("\nLoading embedding model...")
+    print("\nLoading FastEmbed model...")
 
-    embedding_model = SentenceTransformer(
-        EMBEDDING_MODEL,
-        device="cpu"
+    embedding_model = TextEmbedding(
+        model_name=get_fastembed_model_name(),
+        threads=1
     )
 
     total_pages = 0
@@ -430,47 +461,32 @@ def main():
             f"\nProcessing: {pdf_path.name}"
         )
 
-        for page_data in extract_pdf_pages(pdf_path):
+        for record in build_records(pdf_path):
 
-            total_pages += 1
+            total_chunks += 1
 
-            page_text = remove_references(
-                page_data["text"]
-            )
+            batch.append(record)
 
-            chunks = create_chunks(page_text)
+            if len(batch) >= BATCH_SIZE:
 
-            for chunk_index, chunk in enumerate(chunks):
+                uploaded_points += upload_batch(
+                    client,
+                    embedding_model,
+                    batch
+                )
 
-                record = {
-                    "id": generate_point_id(
-                        pdf_path.name,
-                        page_data["page"],
-                        chunk_index,
-                        chunk
-                    ),
-                    "text": chunk,
-                    "source": pdf_path.name,
-                    "page": page_data["page"],
-                    "chunk_index": chunk_index
-                }
+                batch.clear()
 
-                batch.append(record)
-                total_chunks += 1
+                print(
+                    f"Uploaded {uploaded_points} points..."
+                )
 
-                if len(batch) >= BATCH_SIZE:
-
-                    uploaded_points += upload_batch(
-                        client,
-                        embedding_model,
-                        batch
-                    )
-
-                    batch.clear()
-
-                    print(
-                        f"Uploaded {uploaded_points} points..."
-                    )
+        # Count pages independently from chunks.
+        # This includes pages that contain too little text
+        # to produce a chunk.
+        total_pages += sum(
+            1 for _ in extract_pdf_pages(pdf_path)
+        )
 
     # Upload remaining records.
     if batch:
