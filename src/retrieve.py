@@ -4,33 +4,37 @@ import re
 import logging
 from functools import lru_cache
 from time import perf_counter
-from typing import Optional
 
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct
-
 from rank_bm25 import BM25Okapi
-from sentence_transformers import SentenceTransformer, CrossEncoder
+from sentence_transformers import SentenceTransformer
 
 load_dotenv()
-
-logger = logging.getLogger(__name__)
 
 # ==================================================
 # CONFIGURATION
 # ==================================================
+
+logger = logging.getLogger(__name__)
 
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
 COLLECTION_NAME = os.getenv(
     "QDRANT_COLLECTION",
-    "rag_documents_v2"
+    "atlasquery_documents"
 )
 
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+EMBEDDING_MODEL = os.getenv(
+    "EMBEDDING_MODEL",
+    "all-MiniLM-L6-v2"
+)
+
+RERANKER_MODEL = os.getenv(
+    "RERANKER_MODEL",
+    "cross-encoder/ms-marco-MiniLM-L-6-v2"
+)
 
 VECTOR_SIZE = 384
 
@@ -41,6 +45,17 @@ RRF_K = 60
 
 FILTER_REFERENCE_CHUNKS = True
 
+# Disabled by default to reduce memory usage on free hosting.
+ENABLE_RERANKER = (
+    os.getenv("ENABLE_RERANKER", "false").lower() == "true"
+)
+
+# Limit CPU thread usage on small instances.
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+
+
 # ==================================================
 # QDRANT CONNECTION
 # ==================================================
@@ -49,18 +64,20 @@ FILTER_REFERENCE_CHUNKS = True
 def get_qdrant_client():
 
     if not QDRANT_URL:
-        raise RuntimeError("QDRANT_URL is missing from environment variables.")
+        raise RuntimeError(
+            "QDRANT_URL is missing from environment variables."
+        )
 
     if not QDRANT_API_KEY:
-        raise RuntimeError("QDRANT_API_KEY is missing from environment variables.")
+        raise RuntimeError(
+            "QDRANT_API_KEY is missing from environment variables."
+        )
 
-    client = QdrantClient(
+    return QdrantClient(
         url=QDRANT_URL,
         api_key=QDRANT_API_KEY,
         timeout=30
     )
-
-    return client
 
 
 def check_collection():
@@ -82,17 +99,40 @@ def check_collection():
 @lru_cache(maxsize=1)
 def get_embedder():
 
-    logger.info("Loading embedding model: %s", EMBEDDING_MODEL)
+    logger.info(
+        "Loading embedding model: %s",
+        EMBEDDING_MODEL
+    )
 
-    return SentenceTransformer(EMBEDDING_MODEL)
+    model = SentenceTransformer(
+        EMBEDDING_MODEL,
+        device="cpu"
+    )
+
+    try:
+        import torch
+        torch.set_num_threads(1)
+    except Exception:
+        pass
+
+    return model
 
 
 @lru_cache(maxsize=1)
 def get_reranker():
 
+    if not ENABLE_RERANKER:
+        return None
+
     logger.info("Loading CrossEncoder reranker.")
 
-    return CrossEncoder(RERANKER_MODEL)
+    # Imported only when reranking is explicitly enabled.
+    from sentence_transformers import CrossEncoder
+
+    return CrossEncoder(
+        RERANKER_MODEL,
+        device="cpu"
+    )
 
 
 # ==================================================
@@ -131,7 +171,9 @@ def is_reference_like(candidate: dict) -> bool:
 
     metadata = candidate.get("metadata") or {}
 
-    section = str(metadata.get("section", "")).lower().strip()
+    section = str(
+        metadata.get("section", "")
+    ).lower().strip()
 
     heading = str(
         metadata.get("section_heading", "")
@@ -204,7 +246,6 @@ def build_candidate(point, distance=None):
 
     payload = point.payload or {}
 
-    # Support both flat payloads and nested metadata.
     metadata = payload.get("metadata") or {}
 
     text = (
@@ -233,7 +274,12 @@ def build_candidate(point, distance=None):
         **{
             key: value
             for key, value in payload.items()
-            if key not in {"text", "document", "content", "metadata"}
+            if key not in {
+                "text",
+                "document",
+                "content",
+                "metadata"
+            }
         }
     }
 
@@ -324,13 +370,18 @@ def get_bm25_index():
 
     if not corpus:
 
-        logger.warning("No indexed documents available for BM25.")
+        logger.warning(
+            "No indexed documents available for BM25."
+        )
 
         return None, []
 
     bm25 = BM25Okapi(corpus)
 
-    logger.info("BM25 index ready with %s chunks.", len(records))
+    logger.info(
+        "BM25 index ready with %s chunks.",
+        len(records)
+    )
 
     return bm25, records
 
@@ -342,7 +393,6 @@ def get_bm25_index():
 def vector_search(question, candidate_k):
 
     client = get_qdrant_client()
-
     embedder = get_embedder()
 
     embedding_start = perf_counter()
@@ -353,11 +403,15 @@ def vector_search(question, candidate_k):
         show_progress_bar=False
     ).tolist()
 
-    embedding_seconds = perf_counter() - embedding_start
+    embedding_seconds = (
+        perf_counter() - embedding_start
+    )
 
     if len(vector) != VECTOR_SIZE:
+
         raise RuntimeError(
-            f"Embedding dimension mismatch: expected {VECTOR_SIZE}, "
+            f"Embedding dimension mismatch: "
+            f"expected {VECTOR_SIZE}, "
             f"received {len(vector)}."
         )
 
@@ -395,7 +449,11 @@ def vector_search(question, candidate_k):
 
         candidates.append(candidate)
 
-    return candidates, embedding_seconds, search_seconds
+    return (
+        candidates,
+        embedding_seconds,
+        search_seconds
+    )
 
 
 # ==================================================
@@ -456,15 +514,22 @@ def reciprocal_rank_fusion(
 
     fused = {}
 
-    for ranking in (vector_results, keyword_results):
+    for ranking in (
+        vector_results,
+        keyword_results
+    ):
 
-        for rank, candidate in enumerate(ranking, start=1):
+        for rank, candidate in enumerate(
+            ranking,
+            start=1
+        ):
 
             document_id = candidate["id"]
 
             if document_id not in fused:
 
                 fused[document_id] = dict(candidate)
+
                 fused[document_id]["rrf_score"] = 0.0
 
             fused[document_id]["rrf_score"] += (
@@ -479,7 +544,7 @@ def reciprocal_rank_fusion(
 
 
 # ==================================================
-# CROSS-ENCODER RERANKING
+# OPTIONAL CROSS-ENCODER RERANKING
 # ==================================================
 
 def rerank_candidates(question, candidates, top_k):
@@ -489,6 +554,9 @@ def rerank_candidates(question, candidates, top_k):
 
     reranker = get_reranker()
 
+    if reranker is None:
+        return candidates[:top_k]
+
     pairs = [
         (question, candidate["text"])
         for candidate in candidates
@@ -496,7 +564,8 @@ def rerank_candidates(question, candidates, top_k):
 
     scores = reranker.predict(
         pairs,
-        show_progress_bar=False
+        show_progress_bar=False,
+        batch_size=4
     )
 
     for candidate, score in zip(candidates, scores):
@@ -537,40 +606,55 @@ def retrieve(
         return []
 
     # 1. Vector retrieval
+
     vector_start = perf_counter()
 
-    vector_results, embedding_seconds, vector_seconds = (
-        vector_search(question, candidate_k)
+    (
+        vector_results,
+        embedding_seconds,
+        vector_seconds
+    ) = vector_search(
+        question,
+        candidate_k
     )
 
     timings["embedding_seconds"] = round(
-        embedding_seconds, 4
+        embedding_seconds,
+        4
     )
 
     timings["vector_search_seconds"] = round(
-        vector_seconds, 4
+        vector_seconds,
+        4
     )
 
     timings["vector_retrieval_seconds"] = round(
-        time_elapsed(vector_start), 4
+        time_elapsed(vector_start),
+        4
     )
 
     # 2. BM25 retrieval
+
     keyword_start = perf_counter()
 
     if use_hybrid:
+
         keyword_results = keyword_search(
             question,
             candidate_k
         )
+
     else:
+
         keyword_results = []
 
     timings["keyword_search_seconds"] = round(
-        time_elapsed(keyword_start), 4
+        time_elapsed(keyword_start),
+        4
     )
 
     # 3. Hybrid fusion
+
     fusion_start = perf_counter()
 
     if use_hybrid:
@@ -585,13 +669,16 @@ def retrieve(
         candidates = vector_results
 
     timings["fusion_seconds"] = round(
-        time_elapsed(fusion_start), 4
+        time_elapsed(fusion_start),
+        4
     )
 
     # 4. Reranking
+    # Automatically bypassed when ENABLE_RERANKER=false.
+
     rerank_start = perf_counter()
 
-    if use_reranker and candidates:
+    if use_reranker and ENABLE_RERANKER and candidates:
 
         candidates = rerank_candidates(
             question,
@@ -604,15 +691,20 @@ def retrieve(
         candidates = candidates[:top_k]
 
     timings["reranking_seconds"] = round(
-        time_elapsed(rerank_start), 4
+        time_elapsed(rerank_start),
+        4
     )
 
     timings["retrieval_seconds"] = round(
-        perf_counter() - total_start, 4
+        perf_counter() - total_start,
+        4
     )
 
     timings["vector_candidates"] = len(vector_results)
+
     timings["keyword_candidates"] = len(keyword_results)
+
+    timings["reranker_enabled"] = ENABLE_RERANKER
 
     if return_timings:
         return candidates, timings
@@ -620,9 +712,14 @@ def retrieve(
     return candidates
 
 
+# ==================================================
+# TIMING UTILITY
+# ==================================================
+
 def time_elapsed(start):
 
     return perf_counter() - start
+
 
 
 # ==================================================
@@ -631,45 +728,70 @@ def time_elapsed(start):
 
 if __name__ == "__main__":
 
-    logging.basicConfig(level=logging.INFO)
+    import sys
+    import logging
 
-    print("\nConnecting to Qdrant...")
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(levelname)s: %(message)s"
+    )
+
+    # Suppress noisy HTTP logs.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("qdrant_client").setLevel(logging.WARNING)
+
+    print("\nConnecting to Qdrant...", flush=True)
 
     info = check_collection()
 
-    print("Qdrant connection successful.")
-    print("Collection:", COLLECTION_NAME)
-    print("Indexed points:", info["points_count"])
+    print("Qdrant connection successful.", flush=True)
+    print("Collection:", COLLECTION_NAME, flush=True)
+    print("Indexed points:", info["points_count"], flush=True)
+    print("Reranker enabled:", ENABLE_RERANKER, flush=True)
 
     if info["points_count"] == 0:
 
-        print(
-            "\nWARNING: Your collection is empty. "
-            "Run the Qdrant ingestion script before testing retrieval."
-        )
+        print("Collection is empty.", flush=True)
+        sys.exit(0)
 
-    else:
+    print("\nEnter your test question below:", flush=True)
 
-        question = input("\nEnter a test question: ").strip()
+    try:
+        question = input("Question: ").strip()
 
-        results, timings = retrieve(
-            question,
-            top_k=3,
-            candidate_k=20,
-            use_reranker=True,
-            return_timings=True
-        )
+    except (EOFError, KeyboardInterrupt):
+        print("\nInput cancelled.")
+        sys.exit(0)
 
-        print("\nRETRIEVAL RESULTS")
+    if not question:
+        print("Please enter a valid question.")
+        sys.exit(0)
 
-        for index, result in enumerate(results, start=1):
+    print("\nSearching documents...\n", flush=True)
 
-            print(f"\n{index}. {result['source']}")
-            print("Page:", result["page"])
-            print("Score:", result["rerank_score"])
-            print("Text:", result["text"][:500])
+    results, timings = retrieve(
+        question,
+        top_k=3,
+        candidate_k=20,
+        use_reranker=False,
+        return_timings=True
+    )
 
-        print("\nTIMINGS")
+    if not results:
+        print("No relevant documents retrieved.")
 
-        for key, value in timings.items():
-            print(f"{key}: {value}")
+    for index, result in enumerate(results, start=1):
+
+        print(f"\nSOURCE {index}")
+        print("Document:", result["source"])
+        print("Page:", result["page"])
+        print("RRF score:", result["rrf_score"])
+        print("Text:", result["text"][:700])
+        print("-" * 60)
+
+    print("\nRETRIEVAL TIMINGS")
+
+    for key, value in timings.items():
+        print(f"{key}: {value}")
+

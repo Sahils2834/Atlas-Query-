@@ -1,11 +1,8 @@
-chromadb
 pymupdf
-sentence-transformers
-google-genai
-python-dotenv
-torch
-fastapi
-uvicorn[standard]
+fastembed
 rank-bm25
 qdrant-client
-tqdm
+google-genai
+python-dotenv
+fastapi
+uvicorn[standard]

@@ -2,15 +2,13 @@
 import os
 import re
 import uuid
-import hashlib
 from pathlib import Path
-from collections import Counter
 
 import fitz
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient, models
 from sentence_transformers import SentenceTransformer
-from tqdm import tqdm
+
 
 load_dotenv()
 
@@ -39,16 +37,22 @@ CHUNK_OVERLAP_WORDS = int(
     os.getenv("CHUNK_OVERLAP_WORDS", "60")
 )
 
-BATCH_SIZE = 64
+# Smaller batches reduce peak memory usage.
+BATCH_SIZE = int(os.getenv("INGEST_BATCH_SIZE", "16"))
+
 VECTOR_SIZE = 384
 
 SKIP_REFERENCES = True
+
+MIN_CHUNK_WORDS = 35
+
 
 # --------------------------------------------------
 # QDRANT CONNECTION
 # --------------------------------------------------
 
 def get_qdrant_client():
+
     url = os.getenv("QDRANT_URL")
     api_key = os.getenv("QDRANT_API_KEY")
 
@@ -69,18 +73,26 @@ def get_qdrant_client():
 # --------------------------------------------------
 
 def clean_text(text):
+
     if not text:
         return ""
 
-    text = text.replace("\u00ad", "")
-    text = text.replace("\ufb01", "fi")
-    text = text.replace("\ufb02", "fl")
+    replacements = {
+        "\u00ad": "",
+        "\ufb01": "fi",
+        "\ufb02": "fl",
+        "–": "-",
+        "—": "-"
+    }
 
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    # Join words split across PDF lines.
     text = re.sub(r"-\s*\n\s*", "", text)
-    text = re.sub(r"\s+", " ", text)
 
-    text = text.replace("–", "-")
-    text = text.replace("—", "-")
+    # Normalize whitespace.
+    text = re.sub(r"\s+", " ", text)
 
     return text.strip()
 
@@ -90,45 +102,51 @@ def clean_text(text):
 # --------------------------------------------------
 
 def extract_pdf_pages(pdf_path):
-    extracted_pages = []
 
     try:
-        document = fitz.open(pdf_path)
+        with fitz.open(pdf_path) as document:
 
-        for page_number, page in enumerate(document, start=1):
-            text = clean_text(page.get_text("text"))
+            for page_number, page in enumerate(
+                document,
+                start=1
+            ):
 
-            if len(text.split()) < 10:
-                continue
+                text = clean_text(
+                    page.get_text("text")
+                )
 
-            extracted_pages.append({
-                "page": page_number,
-                "text": text
-            })
+                if len(text.split()) < 10:
+                    continue
 
-        document.close()
+                yield {
+                    "page": page_number,
+                    "text": text
+                }
 
     except Exception as error:
-        print(f"Error reading {pdf_path.name}: {error}")
 
-    return extracted_pages
+        print(
+            f"Error reading {pdf_path.name}: {error}"
+        )
 
 
 # --------------------------------------------------
-# REMOVE REFERENCES SECTION
+# REMOVE REFERENCES
 # --------------------------------------------------
 
 def remove_references(text):
+
     if not SKIP_REFERENCES:
         return text
 
     patterns = [
         r"\breferences\b",
         r"\bbibliography\b",
-        r"\bworks cited\b",
+        r"\bworks cited\b"
     ]
 
     for pattern in patterns:
+
         match = re.search(
             pattern,
             text,
@@ -146,6 +164,7 @@ def remove_references(text):
 # --------------------------------------------------
 
 def create_chunks(text):
+
     words = text.split()
 
     if not words:
@@ -156,14 +175,17 @@ def create_chunks(text):
     start = 0
 
     while start < len(words):
+
         end = min(
             start + CHUNK_SIZE_WORDS,
             len(words)
         )
 
-        chunk = " ".join(words[start:end]).strip()
+        chunk = " ".join(
+            words[start:end]
+        ).strip()
 
-        if len(chunk.split()) >= 35:
+        if len(chunk.split()) >= MIN_CHUNK_WORDS:
             chunks.append(chunk)
 
         if end >= len(words):
@@ -178,13 +200,22 @@ def create_chunks(text):
 # STABLE POINT IDS
 # --------------------------------------------------
 
-def generate_point_id(source, page, chunk_index, text):
+def generate_point_id(
+    source,
+    page,
+    chunk_index,
+    text
+):
+
     content = (
         f"{source}|{page}|{chunk_index}|{text}"
     )
 
     return str(
-        uuid.uuid5(uuid.NAMESPACE_URL, content)
+        uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            content
+        )
     )
 
 
@@ -193,6 +224,7 @@ def generate_point_id(source, page, chunk_index, text):
 # --------------------------------------------------
 
 def ensure_collection(client):
+
     collections = client.get_collections().collections
 
     exists = any(
@@ -201,19 +233,36 @@ def ensure_collection(client):
     )
 
     if exists:
-        info = client.get_collection(COLLECTION_NAME)
 
-        if info.config.params.vectors.size != VECTOR_SIZE:
+        info = client.get_collection(
+            COLLECTION_NAME
+        )
+
+        vector_config = info.config.params.vectors
+
+        if not isinstance(
+            vector_config,
+            models.VectorParams
+        ):
             raise ValueError(
-                f"Collection {COLLECTION_NAME} has "
-                f"{info.config.params.vectors.size} dimensions. "
-                f"Expected {VECTOR_SIZE}. Create a new collection "
-                "with the correct dimensions."
+                "The existing collection does not use "
+                "a single unnamed dense vector."
             )
 
-        print(f"Using existing collection: {COLLECTION_NAME}")
+        if vector_config.size != VECTOR_SIZE:
+
+            raise ValueError(
+                f"Collection {COLLECTION_NAME} has "
+                f"{vector_config.size} dimensions. "
+                f"Expected {VECTOR_SIZE}."
+            )
+
+        print(
+            f"Using existing collection: {COLLECTION_NAME}"
+        )
 
     else:
+
         client.create_collection(
             collection_name=COLLECTION_NAME,
             vectors_config=models.VectorParams(
@@ -222,21 +271,114 @@ def ensure_collection(client):
             )
         )
 
-        print(f"Created collection: {COLLECTION_NAME}")
+        print(
+            f"Created collection: {COLLECTION_NAME}"
+        )
 
-    # Index fields used for metadata filtering.
+    # Create indexes for metadata filtering.
     for field_name, field_schema in [
         ("source", models.PayloadSchemaType.KEYWORD),
-        ("page", models.PayloadSchemaType.INTEGER),
+        ("page", models.PayloadSchemaType.INTEGER)
     ]:
+
         try:
+
             client.create_payload_index(
                 collection_name=COLLECTION_NAME,
                 field_name=field_name,
                 field_schema=field_schema
             )
-        except Exception:
-            pass
+
+        except Exception as error:
+
+            print(
+                f"Index note for {field_name}: {error}"
+            )
+
+
+# --------------------------------------------------
+# BUILD RECORDS
+# --------------------------------------------------
+
+def build_records(pdf_path):
+
+    for page_data in extract_pdf_pages(pdf_path):
+
+        page_text = remove_references(
+            page_data["text"]
+        )
+
+        chunks = create_chunks(page_text)
+
+        for chunk_index, chunk in enumerate(chunks):
+
+            yield {
+                "id": generate_point_id(
+                    pdf_path.name,
+                    page_data["page"],
+                    chunk_index,
+                    chunk
+                ),
+                "text": chunk,
+                "source": pdf_path.name,
+                "page": page_data["page"],
+                "chunk_index": chunk_index
+            }
+
+
+# --------------------------------------------------
+# EMBED AND UPLOAD BATCH
+# --------------------------------------------------
+
+def upload_batch(
+    client,
+    embedding_model,
+    records
+):
+
+    if not records:
+        return 0
+
+    texts = [
+        record["text"]
+        for record in records
+    ]
+
+    embeddings = embedding_model.encode(
+        texts,
+        batch_size=BATCH_SIZE,
+        normalize_embeddings=True,
+        show_progress_bar=False,
+        convert_to_numpy=True
+    )
+
+    points = []
+
+    for record, embedding in zip(
+        records,
+        embeddings
+    ):
+
+        points.append(
+            models.PointStruct(
+                id=record["id"],
+                vector=embedding.tolist(),
+                payload={
+                    "text": record["text"],
+                    "source": record["source"],
+                    "page": record["page"],
+                    "chunk_index": record["chunk_index"]
+                }
+            )
+        )
+
+    client.upsert(
+        collection_name=COLLECTION_NAME,
+        points=points,
+        wait=True
+    )
+
+    return len(points)
 
 
 # --------------------------------------------------
@@ -244,36 +386,54 @@ def ensure_collection(client):
 # --------------------------------------------------
 
 def main():
-    pdf_files = list(DATA_DIR.glob("*.pdf"))
+
+    pdf_files = sorted(
+        DATA_DIR.glob("*.pdf")
+    )
 
     if not pdf_files:
-        print(f"No PDF files found in {DATA_DIR}")
+
+        print(
+            f"No PDF files found in {DATA_DIR}"
+        )
+
         return
 
-    print(f"Found {len(pdf_files)} PDF files.")
+    print(
+        f"Found {len(pdf_files)} PDF files."
+    )
 
     print("\nConnecting to Qdrant...")
+
     client = get_qdrant_client()
 
     ensure_collection(client)
 
     print("\nLoading embedding model...")
+
     embedding_model = SentenceTransformer(
-        EMBEDDING_MODEL
+        EMBEDDING_MODEL,
+        device="cpu"
     )
 
-    all_records = []
-
     total_pages = 0
+    total_chunks = 0
+    uploaded_points = 0
+
+    batch = []
+
+    print("\nStarting ingestion...")
 
     for pdf_path in pdf_files:
-        print(f"\nProcessing: {pdf_path.name}")
 
-        pages = extract_pdf_pages(pdf_path)
+        print(
+            f"\nProcessing: {pdf_path.name}"
+        )
 
-        total_pages += len(pages)
+        for page_data in extract_pdf_pages(pdf_path):
 
-        for page_data in pages:
+            total_pages += 1
+
             page_text = remove_references(
                 page_data["text"]
             )
@@ -281,79 +441,61 @@ def main():
             chunks = create_chunks(page_text)
 
             for chunk_index, chunk in enumerate(chunks):
-                point_id = generate_point_id(
-                    pdf_path.name,
-                    page_data["page"],
-                    chunk_index,
-                    chunk
-                )
 
-                all_records.append({
-                    "id": point_id,
+                record = {
+                    "id": generate_point_id(
+                        pdf_path.name,
+                        page_data["page"],
+                        chunk_index,
+                        chunk
+                    ),
                     "text": chunk,
                     "source": pdf_path.name,
                     "page": page_data["page"],
                     "chunk_index": chunk_index
-                })
+                }
 
-    if not all_records:
-        print("No valid text chunks were extracted.")
-        return
+                batch.append(record)
+                total_chunks += 1
 
-    print(f"\nTotal pages processed: {total_pages}")
-    print(f"Total chunks created: {len(all_records)}")
+                if len(batch) >= BATCH_SIZE:
 
-    print("\nGenerating embeddings and uploading to Qdrant...")
+                    uploaded_points += upload_batch(
+                        client,
+                        embedding_model,
+                        batch
+                    )
 
-    for start in tqdm(
-        range(0, len(all_records), BATCH_SIZE)
-    ):
-        batch = all_records[
-            start:start + BATCH_SIZE
-        ]
+                    batch.clear()
 
-        texts = [
-            item["text"] for item in batch
-        ]
+                    print(
+                        f"Uploaded {uploaded_points} points..."
+                    )
 
-        embeddings = embedding_model.encode(
-            texts,
-            normalize_embeddings=True,
-            show_progress_bar=False
+    # Upload remaining records.
+    if batch:
+
+        uploaded_points += upload_batch(
+            client,
+            embedding_model,
+            batch
         )
 
-        points = []
+        batch.clear()
 
-        for item, embedding in zip(batch, embeddings):
-            points.append(
-                models.PointStruct(
-                    id=item["id"],
-                    vector=embedding.tolist(),
-                    payload={
-                        "text": item["text"],
-                        "source": item["source"],
-                        "page": item["page"],
-                        "chunk_index": item["chunk_index"]
-                    }
-                )
-            )
-
-        client.upsert(
-            collection_name=COLLECTION_NAME,
-            points=points,
-            wait=True
-        )
-
-    info = client.get_collection(COLLECTION_NAME)
+    info = client.get_collection(
+        COLLECTION_NAME
+    )
 
     print("\n====================================")
     print("INGESTION COMPLETED")
     print("====================================")
     print(f"Collection: {COLLECTION_NAME}")
     print(f"PDF files: {len(pdf_files)}")
-    print(f"Pages: {total_pages}")
-    print(f"Chunks created: {len(all_records)}")
-    print(f"Qdrant points: {info.points_count}")
+    print(f"Pages processed: {total_pages}")
+    print(f"Chunks created: {total_chunks}")
+    print(f"Points uploaded: {uploaded_points}")
+    print(f"Total Qdrant points: {info.points_count}")
     print("====================================")
 
 
