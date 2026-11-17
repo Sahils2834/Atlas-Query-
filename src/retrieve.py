@@ -2,11 +2,12 @@
 import os
 import re
 import logging
+
 from functools import lru_cache
 from time import perf_counter
 
 from dotenv import load_dotenv
-from qdrant_client import QdrantClient
+from qdrant_client import QdrantClient, models
 from rank_bm25 import BM25Okapi
 from fastembed import TextEmbedding
 
@@ -41,7 +42,7 @@ RRF_K = 60
 
 FILTER_REFERENCE_CHUNKS = True
 
-# Reranking remains disabled on the free hosting instance.
+# Keep disabled on the Render free instance.
 ENABLE_RERANKER = False
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -133,6 +134,56 @@ def time_elapsed(start):
 
 
 # ==================================================
+# DOCUMENT FILTER
+# ==================================================
+
+def normalize_document_ids(document_ids=None):
+
+    """
+    Normalize document IDs supplied by the API.
+
+    None means search the entire collection.
+    An empty list means search no documents.
+    """
+
+    if document_ids is None:
+        return None
+
+    if isinstance(document_ids, str):
+        document_ids = [document_ids]
+
+    normalized = sorted({
+        str(document_id).strip()
+        for document_id in document_ids
+        if document_id and str(document_id).strip()
+    })
+
+    return tuple(normalized)
+
+
+def build_document_filter(document_ids=None):
+
+    document_ids = normalize_document_ids(document_ids)
+
+    if document_ids is None:
+        return None
+
+    if not document_ids:
+        return None
+
+    return models.Filter(
+        must=[
+            models.FieldCondition(
+                key="document_id",
+                match=models.MatchAny(
+                    any=list(document_ids)
+                )
+            )
+        ]
+    )
+
+
+# ==================================================
 # REFERENCE FILTERING
 # ==================================================
 
@@ -143,10 +194,22 @@ REFERENCE_SECTION_PATTERN = re.compile(
 )
 
 REFERENCE_LINE_PATTERNS = [
-    re.compile(r"\bdoi\s*:\s*10\.\d{4,9}/", re.IGNORECASE),
-    re.compile(r"https?://\S+", re.IGNORECASE),
-    re.compile(r"\barxiv\s*:\s*\d{4}\.\d{4,5}", re.IGNORECASE),
-    re.compile(r"\bet al\.\s*\(?\d{4}\)?", re.IGNORECASE),
+    re.compile(
+        r"\bdoi\s*:\s*10\.\d{4,9}/",
+        re.IGNORECASE
+    ),
+    re.compile(
+        r"https?://\S+",
+        re.IGNORECASE
+    ),
+    re.compile(
+        r"\barxiv\s*:\s*\d{4}\.\d{4,5}",
+        re.IGNORECASE
+    ),
+    re.compile(
+        r"\bet al\.\s*\(?\d{4}\)?",
+        re.IGNORECASE
+    ),
 ]
 
 
@@ -198,7 +261,10 @@ def is_reference_like(candidate: dict) -> bool:
     for line in lines:
 
         has_year = bool(
-            re.search(r"\b(?:19|20)\d{2}[a-z]?\b", line)
+            re.search(
+                r"\b(?:19|20)\d{2}[a-z]?\b",
+                line
+            )
         )
 
         has_author = bool(
@@ -271,24 +337,35 @@ def build_candidate(point, distance=None):
         "text": str(text),
         "source": str(source),
         "page": page,
+
+        "document_id": payload.get(
+            "document_id",
+            metadata.get("document_id")
+        ),
+
         "chunk_index": payload.get(
             "chunk_index",
             metadata.get("chunk_index", "?")
         ),
+
         "section": payload.get(
             "section",
             metadata.get("section", "general")
         ),
+
         "section_heading": payload.get(
             "section_heading",
             metadata.get("section_heading", "General")
         ),
+
         "metadata": combined_metadata,
+
         "distance": (
             float(distance)
             if distance is not None
             else None
         ),
+
         "vector_rank": None,
         "bm25_rank": None,
         "bm25_score": None,
@@ -301,10 +378,23 @@ def build_candidate(point, distance=None):
 # BM25 INDEX
 # ==================================================
 
-@lru_cache(maxsize=1)
-def get_bm25_index():
+@lru_cache(maxsize=8)
+def get_bm25_index(document_ids=None):
 
-    logger.info("Building BM25 index from Qdrant.")
+    """
+    Build a BM25 index.
+
+    If document IDs are provided, only chunks belonging
+    to those uploaded PDFs are included.
+
+    The tuple-based cache allows different uploaded
+    document combinations to have separate indexes.
+    """
+
+    logger.info(
+        "Building BM25 index. Documents: %s",
+        document_ids if document_ids else "All"
+    )
 
     client = get_qdrant_client()
 
@@ -313,10 +403,15 @@ def get_bm25_index():
 
     offset = None
 
+    query_filter = build_document_filter(
+        document_ids
+    )
+
     while True:
 
         points, next_offset = client.scroll(
             collection_name=COLLECTION_NAME,
+            scroll_filter=query_filter,
             limit=256,
             offset=offset,
             with_payload=True,
@@ -373,15 +468,17 @@ def get_bm25_index():
 # VECTOR SEARCH
 # ==================================================
 
-def vector_search(question, candidate_k):
+def vector_search(
+    question,
+    candidate_k,
+    document_ids=None
+):
 
     client = get_qdrant_client()
     embedder = get_embedder()
 
     embedding_start = perf_counter()
 
-    # FastEmbed generates a 384-dimensional embedding.
-    # Qdrant uses cosine similarity for retrieval.
     embedding = next(
         embedder.embed([question])
     )
@@ -402,9 +499,14 @@ def vector_search(question, candidate_k):
 
     search_start = perf_counter()
 
+    query_filter = build_document_filter(
+        document_ids
+    )
+
     response = client.query_points(
         collection_name=COLLECTION_NAME,
         query=vector,
+        query_filter=query_filter,
         limit=candidate_k,
         with_payload=True,
         with_vectors=False
@@ -445,9 +547,19 @@ def vector_search(question, candidate_k):
 # BM25 KEYWORD SEARCH
 # ==================================================
 
-def keyword_search(question, candidate_k):
+def keyword_search(
+    question,
+    candidate_k,
+    document_ids=None
+):
 
-    bm25, records = get_bm25_index()
+    normalized_ids = normalize_document_ids(
+        document_ids
+    )
+
+    bm25, records = get_bm25_index(
+        normalized_ids
+    )
 
     if bm25 is None:
         return []
@@ -509,14 +621,14 @@ def reciprocal_rank_fusion(
             start=1
         ):
 
-            document_id = candidate["id"]
+            point_id = candidate["id"]
 
-            if document_id not in fused:
+            if point_id not in fused:
 
-                fused[document_id] = dict(candidate)
-                fused[document_id]["rrf_score"] = 0.0
+                fused[point_id] = dict(candidate)
+                fused[point_id]["rrf_score"] = 0.0
 
-            fused[document_id]["rrf_score"] += (
+            fused[point_id]["rrf_score"] += (
                 1.0 / (rrf_k + rank)
             )
 
@@ -531,7 +643,11 @@ def reciprocal_rank_fusion(
 # OPTIONAL RERANKING
 # ==================================================
 
-def rerank_candidates(question, candidates, top_k):
+def rerank_candidates(
+    question,
+    candidates,
+    top_k
+):
 
     # CrossEncoder is intentionally not loaded.
     # This avoids bringing PyTorch into the hosted backend.
@@ -549,14 +665,40 @@ def retrieve(
     candidate_k=DEFAULT_CANDIDATE_K,
     use_reranker=True,
     return_timings=False,
-    use_hybrid=True
+    use_hybrid=True,
+    document_ids=None
 ):
+
+    """
+    Hybrid retrieval across multiple uploaded PDFs.
+
+    document_ids:
+        None:
+            Search the entire Qdrant collection.
+
+        ["id1", "id2"]:
+            Search only the selected uploaded PDFs.
+
+        []:
+            Return no results.
+    """
 
     total_start = perf_counter()
 
     timings = {}
 
     if not question or not question.strip():
+
+        if return_timings:
+            return [], timings
+
+        return []
+
+    normalized_ids = normalize_document_ids(
+        document_ids
+    )
+
+    if normalized_ids is not None and not normalized_ids:
 
         if return_timings:
             return [], timings
@@ -573,7 +715,8 @@ def retrieve(
         vector_seconds
     ) = vector_search(
         question,
-        candidate_k
+        candidate_k,
+        normalized_ids
     )
 
     timings["embedding_seconds"] = round(
@@ -599,7 +742,8 @@ def retrieve(
 
         keyword_results = keyword_search(
             question,
-            candidate_k
+            candidate_k,
+            normalized_ids
         )
 
     else:
@@ -652,8 +796,16 @@ def retrieve(
     )
 
     timings["vector_candidates"] = len(vector_results)
+
     timings["keyword_candidates"] = len(keyword_results)
+
     timings["reranker_enabled"] = False
+
+    timings["document_filter_count"] = (
+        len(normalized_ids)
+        if normalized_ids is not None
+        else None
+    )
 
     if return_timings:
         return candidates, timings
@@ -725,6 +877,7 @@ if __name__ == "__main__":
         print(f"\nSOURCE {index}")
         print("Document:", result["source"])
         print("Page:", result["page"])
+        print("Document ID:", result["document_id"])
         print("RRF score:", result["rrf_score"])
         print("Text:", result["text"][:700])
         print("-" * 60)

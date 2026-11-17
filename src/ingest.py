@@ -2,7 +2,9 @@
 import os
 import re
 import uuid
+import logging
 from pathlib import Path
+from typing import Optional, Iterable
 
 import fitz
 from dotenv import load_dotenv
@@ -10,11 +12,13 @@ from qdrant_client import QdrantClient, models
 from fastembed import TextEmbedding
 
 
+# ==================================================
+# CONFIGURATION
+# ==================================================
+
 load_dotenv()
 
-# --------------------------------------------------
-# CONFIGURATION
-# --------------------------------------------------
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -48,9 +52,12 @@ SKIP_REFERENCES = True
 MIN_CHUNK_WORDS = 35
 
 
-# --------------------------------------------------
-# FASTEMBED MODEL NAME
-# --------------------------------------------------
+# ==================================================
+# FASTEMBED MODEL
+# ==================================================
+
+_embedding_model = None
+
 
 def get_fastembed_model_name():
 
@@ -60,9 +67,28 @@ def get_fastembed_model_name():
     return f"sentence-transformers/{EMBEDDING_MODEL}"
 
 
-# --------------------------------------------------
+def get_embedding_model():
+
+    global _embedding_model
+
+    if _embedding_model is None:
+
+        logger.info(
+            "Loading FastEmbed model: %s",
+            get_fastembed_model_name()
+        )
+
+        _embedding_model = TextEmbedding(
+            model_name=get_fastembed_model_name(),
+            threads=1
+        )
+
+    return _embedding_model
+
+
+# ==================================================
 # QDRANT CONNECTION
-# --------------------------------------------------
+# ==================================================
 
 def get_qdrant_client():
 
@@ -82,9 +108,9 @@ def get_qdrant_client():
     )
 
 
-# --------------------------------------------------
+# ==================================================
 # TEXT CLEANING
-# --------------------------------------------------
+# ==================================================
 
 def clean_text(text):
 
@@ -111,9 +137,9 @@ def clean_text(text):
     return text.strip()
 
 
-# --------------------------------------------------
+# ==================================================
 # PDF EXTRACTION
-# --------------------------------------------------
+# ==================================================
 
 def extract_pdf_pages(pdf_path):
 
@@ -121,33 +147,61 @@ def extract_pdf_pages(pdf_path):
 
         with fitz.open(pdf_path) as document:
 
-            for page_number, page in enumerate(
-                document,
-                start=1
-            ):
+            yield from extract_document_pages(document)
 
-                text = clean_text(
-                    page.get_text("text")
-                )
+    except Exception:
 
-                if len(text.split()) < 10:
-                    continue
-
-                yield {
-                    "page": page_number,
-                    "text": text
-                }
-
-    except Exception as error:
-
-        print(
-            f"Error reading {pdf_path.name}: {error}"
+        logger.exception(
+            "Error reading PDF: %s",
+            pdf_path
         )
 
+        raise
 
-# --------------------------------------------------
+
+def extract_pdf_bytes(pdf_bytes):
+
+    try:
+
+        with fitz.open(
+            stream=pdf_bytes,
+            filetype="pdf"
+        ) as document:
+
+            yield from extract_document_pages(document)
+
+    except Exception:
+
+        logger.exception(
+            "Error extracting uploaded PDF."
+        )
+
+        raise
+
+
+def extract_document_pages(document):
+
+    for page_number, page in enumerate(
+        document,
+        start=1
+    ):
+
+        text = clean_text(
+            page.get_text("text")
+        )
+
+        if len(text.split()) < 10:
+            continue
+
+        yield {
+            "page": page_number,
+            "text": text
+        }
+
+
+# ==================================================
 # REMOVE REFERENCES
-# --------------------------------------------------
+# ==================================================
 
 def remove_references(text):
 
@@ -169,14 +223,15 @@ def remove_references(text):
         )
 
         if match and match.start() > len(text) * 0.55:
+
             return text[:match.start()].strip()
 
     return text
 
 
-# --------------------------------------------------
+# ==================================================
 # CHUNKING
-# --------------------------------------------------
+# ==================================================
 
 def create_chunks(text):
 
@@ -211,19 +266,19 @@ def create_chunks(text):
     return chunks
 
 
-# --------------------------------------------------
-# STABLE POINT IDS
-# --------------------------------------------------
+# ==================================================
+# POINT IDS
+# ==================================================
 
 def generate_point_id(
-    source,
+    document_id,
     page,
     chunk_index,
     text
 ):
 
     content = (
-        f"{source}|{page}|{chunk_index}|{text}"
+        f"{document_id}|{page}|{chunk_index}|{text}"
     )
 
     return str(
@@ -234,9 +289,9 @@ def generate_point_id(
     )
 
 
-# --------------------------------------------------
+# ==================================================
 # COLLECTION SETUP
-# --------------------------------------------------
+# ==================================================
 
 def ensure_collection(client):
 
@@ -273,8 +328,9 @@ def ensure_collection(client):
                 f"Expected {VECTOR_SIZE}."
             )
 
-        print(
-            f"Using existing collection: {COLLECTION_NAME}"
+        logger.info(
+            "Using existing collection: %s",
+            COLLECTION_NAME
         )
 
     else:
@@ -287,38 +343,52 @@ def ensure_collection(client):
             )
         )
 
-        print(
-            f"Created collection: {COLLECTION_NAME}"
+        logger.info(
+            "Created collection: %s",
+            COLLECTION_NAME
         )
 
-    # Create indexes for metadata filtering.
-    for field_name, field_schema in [
+    # Index metadata fields used by retrieval filters.
+    indexes = [
         ("source", models.PayloadSchemaType.KEYWORD),
-        ("page", models.PayloadSchemaType.INTEGER)
-    ]:
+        ("page", models.PayloadSchemaType.INTEGER),
+        ("document_id", models.PayloadSchemaType.KEYWORD)
+    ]
+
+    for field_name, field_schema in indexes:
 
         try:
 
             client.create_payload_index(
                 collection_name=COLLECTION_NAME,
                 field_name=field_name,
-                field_schema=field_schema
+                field_schema=field_schema,
+                wait=True
             )
 
         except Exception as error:
 
-            print(
-                f"Index note for {field_name}: {error}"
+            # Existing indexes are fine.
+            logger.info(
+                "Payload index note for %s: %s",
+                field_name,
+                error
             )
 
 
-# --------------------------------------------------
+# ==================================================
 # BUILD RECORDS
-# --------------------------------------------------
+# ==================================================
 
-def build_records(pdf_path):
+def build_records_from_pages(
+    pages,
+    filename,
+    document_id
+):
 
-    for page_data in extract_pdf_pages(pdf_path):
+    chunk_count = 0
+
+    for page_data in pages:
 
         page_text = remove_references(
             page_data["text"]
@@ -328,23 +398,46 @@ def build_records(pdf_path):
 
         for chunk_index, chunk in enumerate(chunks):
 
+            chunk_count += 1
+
             yield {
                 "id": generate_point_id(
-                    pdf_path.name,
+                    document_id,
                     page_data["page"],
                     chunk_index,
                     chunk
                 ),
                 "text": chunk,
-                "source": pdf_path.name,
+                "source": filename,
                 "page": page_data["page"],
-                "chunk_index": chunk_index
+                "chunk_index": chunk_index,
+                "document_id": document_id
             }
 
 
-# --------------------------------------------------
+def build_records(pdf_path, document_id=None):
+
+    pdf_path = Path(pdf_path)
+
+    if document_id is None:
+
+        document_id = str(
+            uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"atlasquery-local:{pdf_path.name}"
+            )
+        )
+
+    yield from build_records_from_pages(
+        extract_pdf_pages(pdf_path),
+        pdf_path.name,
+        document_id
+    )
+
+
+# ==================================================
 # EMBED AND UPLOAD BATCH
-# --------------------------------------------------
+# ==================================================
 
 def upload_batch(
     client,
@@ -360,7 +453,6 @@ def upload_batch(
         for record in records
     ]
 
-    # Generate embeddings using FastEmbed.
     embeddings = list(
         embedding_model.embed(
             texts,
@@ -398,7 +490,8 @@ def upload_batch(
                     "text": record["text"],
                     "source": record["source"],
                     "page": record["page"],
-                    "chunk_index": record["chunk_index"]
+                    "chunk_index": record["chunk_index"],
+                    "document_id": record["document_id"]
                 }
             )
         )
@@ -412,60 +505,60 @@ def upload_batch(
     return len(points)
 
 
-# --------------------------------------------------
-# MAIN INGESTION
-# --------------------------------------------------
+# ==================================================
+# INGESTION ENGINE
+# ==================================================
 
-def main():
+def ingest_pages(
+    pages,
+    filename,
+    document_id,
+    client=None,
+    embedding_model=None
+):
 
-    pdf_files = sorted(
-        DATA_DIR.glob("*.pdf")
+    client = client or get_qdrant_client()
+
+    embedding_model = (
+        embedding_model or get_embedding_model()
     )
-
-    if not pdf_files:
-
-        print(
-            f"No PDF files found in {DATA_DIR}"
-        )
-
-        return
-
-    print(
-        f"Found {len(pdf_files)} PDF files."
-    )
-
-    print("\nConnecting to Qdrant...")
-
-    client = get_qdrant_client()
 
     ensure_collection(client)
 
-    print("\nLoading FastEmbed model...")
-
-    embedding_model = TextEmbedding(
-        model_name=get_fastembed_model_name(),
-        threads=1
-    )
-
-    total_pages = 0
-    total_chunks = 0
-    uploaded_points = 0
-
     batch = []
 
-    print("\nStarting ingestion...")
+    total_chunks = 0
+    uploaded_points = 0
+    total_pages = 0
 
-    for pdf_path in pdf_files:
+    for page_data in pages:
 
-        print(
-            f"\nProcessing: {pdf_path.name}"
+        total_pages += 1
+
+        page_text = remove_references(
+            page_data["text"]
         )
 
-        for record in build_records(pdf_path):
+        chunks = create_chunks(page_text)
 
-            total_chunks += 1
+        for chunk_index, chunk in enumerate(chunks):
+
+            record = {
+                "id": generate_point_id(
+                    document_id,
+                    page_data["page"],
+                    chunk_index,
+                    chunk
+                ),
+                "text": chunk,
+                "source": filename,
+                "page": page_data["page"],
+                "chunk_index": chunk_index,
+                "document_id": document_id
+            }
 
             batch.append(record)
+            total_chunks += 1
 
             if len(batch) >= BATCH_SIZE:
 
@@ -477,18 +570,7 @@ def main():
 
                 batch.clear()
 
-                print(
-                    f"Uploaded {uploaded_points} points..."
-                )
-
-        # Count pages independently from chunks.
-        # This includes pages that contain too little text
-        # to produce a chunk.
-        total_pages += sum(
-            1 for _ in extract_pdf_pages(pdf_path)
-        )
-
-    # Upload remaining records.
+    # Upload the remaining records.
     if batch:
 
         uploaded_points += upload_batch(
@@ -497,22 +579,195 @@ def main():
             batch
         )
 
-        batch.clear()
+    if uploaded_points == 0:
 
-    info = client.get_collection(
-        COLLECTION_NAME
+        raise ValueError(
+            "No usable text chunks were extracted from this PDF. "
+            "The PDF may be scanned or image-only."
+        )
+
+    logger.info(
+        "Ingested %s: %s pages, %s chunks",
+        filename,
+        total_pages,
+        uploaded_points
     )
 
-    print("\n====================================")
-    print("INGESTION COMPLETED")
-    print("====================================")
-    print(f"Collection: {COLLECTION_NAME}")
-    print(f"PDF files: {len(pdf_files)}")
-    print(f"Pages processed: {total_pages}")
-    print(f"Chunks created: {total_chunks}")
-    print(f"Points uploaded: {uploaded_points}")
-    print(f"Total Qdrant points: {info.points_count}")
-    print("====================================")
+    return {
+        "document_id": document_id,
+        "filename": filename,
+        "pages": total_pages,
+        "chunks": uploaded_points,
+        "status": "completed"
+    }
+
+
+# ==================================================
+# PUBLIC UPLOAD FUNCTION
+# ==================================================
+
+def ingest_uploaded_pdf(
+    pdf_bytes,
+    filename,
+    document_id=None
+):
+
+    if not pdf_bytes:
+        raise ValueError("The uploaded PDF is empty.")
+
+    if document_id is None:
+        document_id = str(uuid.uuid4())
+
+    # Validate PDF structure before ingestion.
+    try:
+
+        with fitz.open(
+            stream=pdf_bytes,
+            filetype="pdf"
+        ) as document:
+
+            if document.is_encrypted:
+
+                raise ValueError(
+                    "Password-protected PDFs are not supported."
+                )
+
+            if document.page_count == 0:
+
+                raise ValueError(
+                    "The uploaded PDF contains no pages."
+                )
+
+            # Materialize page data before closing the document.
+            pages = list(
+                extract_document_pages(document)
+            )
+
+    except ValueError:
+        raise
+
+    except Exception as error:
+
+        raise ValueError(
+            "Unable to read this PDF. Please upload a valid PDF."
+        ) from error
+
+    if not pages:
+
+        raise ValueError(
+            "No readable text was found. "
+            "This may be a scanned PDF requiring OCR."
+        )
+
+    return ingest_pages(
+        pages=pages,
+        filename=filename,
+        document_id=document_id
+    )
+
+
+# ==================================================
+# LOCAL DATASET INGESTION
+# ==================================================
+
+def main():
+
+    pdf_files = sorted(
+        DATA_DIR.glob("*.pdf")
+    )
+
+    if not pdf_files:
+
+        logger.info(
+            "No PDF files found in %s",
+            DATA_DIR
+        )
+
+        return
+
+    logger.info(
+        "Found %s PDF files.",
+        len(pdf_files)
+    )
+
+    client = get_qdrant_client()
+
+    ensure_collection(client)
+
+    embedding_model = get_embedding_model()
+
+    total_pages = 0
+    total_chunks = 0
+    uploaded_points = 0
+
+    batch = []
+
+    for pdf_path in pdf_files:
+
+        logger.info(
+            "Processing: %s",
+            pdf_path.name
+        )
+
+        document_id = str(
+            uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"atlasquery-local:{pdf_path.name}"
+            )
+        )
+
+        for page_data in extract_pdf_pages(pdf_path):
+
+            total_pages += 1
+
+            page_text = remove_references(
+                page_data["text"]
+            )
+
+            chunks = create_chunks(page_text)
+
+            for chunk_index, chunk in enumerate(chunks):
+
+                batch.append({
+                    "id": generate_point_id(
+                        document_id,
+                        page_data["page"],
+                        chunk_index,
+                        chunk
+                    ),
+                    "text": chunk,
+                    "source": pdf_path.name,
+                    "page": page_data["page"],
+                    "chunk_index": chunk_index,
+                    "document_id": document_id
+                })
+
+                total_chunks += 1
+
+                if len(batch) >= BATCH_SIZE:
+
+                    uploaded_points += upload_batch(
+                        client,
+                        embedding_model,
+                        batch
+                    )
+
+                    batch.clear()
+
+    if batch:
+
+        uploaded_points += upload_batch(
+            client,
+            embedding_model,
+            batch
+        )
+
+    logger.info(
+        "Ingestion completed. Pages: %s | Chunks: %s | Uploaded: %s",
+        total_pages,
+        total_chunks,
+        uploaded_points
+    )
 
 
 if __name__ == "__main__":

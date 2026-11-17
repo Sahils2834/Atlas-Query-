@@ -12,26 +12,26 @@ const suggestions = [
   {
     icon: "⌕",
     title: "Understand a concept",
-    description: "Explain important concepts from your documents.",
-    question: "Explain the main concepts covered in my documents.",
+    description: "Explore important concepts in your PDFs.",
+    question: "Explain the main concepts covered in my uploaded documents.",
   },
   {
     icon: "▤",
     title: "Summarize research",
-    description: "Discover the key findings and conclusions.",
-    question: "Give me a summary of the key findings in my documents.",
+    description: "Discover key findings and conclusions.",
+    question: "Summarize the key findings across my uploaded documents.",
   },
   {
     icon: "⇄",
     title: "Compare information",
-    description: "Identify similarities and differences.",
-    question: "Identify important similarities and differences in my documents.",
+    description: "Compare findings across different documents.",
+    question: "Compare the important findings across my documents.",
   },
   {
     icon: "✧",
     title: "Explore deeper",
-    description: "Find important insights from your documents.",
-    question: "What are the most important insights from the indexed documents?",
+    description: "Discover insights from your research library.",
+    question: "What are the most important insights in my documents?",
   },
 ];
 
@@ -41,7 +41,6 @@ function Icon({ name }) {
     search: "⌕",
     book: "▤",
     menu: "☰",
-    send: "↑",
     copy: "▢",
     check: "✓",
     close: "×",
@@ -49,6 +48,8 @@ function Icon({ name }) {
     sparkle: "✳",
     clock: "◷",
     arrow: "↗",
+    upload: "↑",
+    trash: "⌫",
   };
 
   return <span className="icon">{icons[name] || "•"}</span>;
@@ -63,35 +64,37 @@ function formatTime() {
 
 function getSourceName(source) {
   return String(
-    source.source || source.filename || source.document || "Document source"
+    source.source ||
+    source.filename ||
+    source.document ||
+    "Document source"
   ).split(/[\\/]/).pop();
 }
 
 function formatDuration(value) {
   const number = Number(value);
-
   if (!Number.isFinite(number) || number < 0) return "—";
-
-  return `${number.toFixed(2)}s`;
+  return number < 1
+    ? `${Math.round(number * 1000)} ms`
+    : `${number.toFixed(2)} s`;
 }
 
 function EvidenceMap({ sources }) {
-  const [activeSource, setActiveSource] = useState(0);
+  const [selected, setSelected] = useState(0);
 
   if (!sources?.length) return null;
 
-  const active = sources[activeSource] || sources[0];
-  const count = Math.min(sources.length, 6);
-  const visibleSources = sources.slice(0, count);
-
+  const visible = sources.slice(0, 6);
   const positions = [
-    { x: 50, y: 13 },
-    { x: 83, y: 37 },
-    { x: 78, y: 75 },
-    { x: 50, y: 88 },
-    { x: 19, y: 72 },
-    { x: 16, y: 34 },
+    [50, 14],
+    [82, 35],
+    [82, 72],
+    [50, 88],
+    [18, 72],
+    [18, 35],
   ];
+
+  const active = visible[selected] || visible[0];
 
   return (
     <section className="insight-panel evidence-panel">
@@ -99,11 +102,10 @@ function EvidenceMap({ sources }) {
         <div>
           <span className="panel-kicker">RETRIEVAL VISUALIZATION</span>
           <h3>Evidence constellation</h3>
-          <p>Explore the document fragments behind this answer.</p>
+          <p>Explore the passages supporting this answer.</p>
         </div>
-
         <span className="insight-count">
-          {sources.length} {sources.length === 1 ? "SOURCE" : "SOURCES"}
+          {sources.length} SOURCES
         </span>
       </div>
 
@@ -112,71 +114,58 @@ function EvidenceMap({ sources }) {
           <div className="constellation-orbit orbit-one" />
           <div className="constellation-orbit orbit-two" />
 
-          <div className="constellation-center">
-            <span>✳</span>
-            <small>YOUR QUESTION</small>
-          </div>
-
           <svg
             className="constellation-lines"
             viewBox="0 0 100 100"
             preserveAspectRatio="none"
-            aria-hidden="true"
           >
-            {visibleSources.map((source, index) => {
-              const position = positions[index];
-
-              return (
-                <line
-                  key={source.id || index}
-                  x1="50"
-                  y1="50"
-                  x2={position.x}
-                  y2={position.y}
-                  className={
-                    activeSource === index
-                      ? "constellation-line active"
-                      : "constellation-line"
-                  }
-                />
-              );
-            })}
+            {visible.map((source, index) => (
+              <line
+                key={source.id || index}
+                x1="50"
+                y1="50"
+                x2={positions[index][0]}
+                y2={positions[index][1]}
+                className={
+                  selected === index ? "line-active" : ""
+                }
+              />
+            ))}
           </svg>
 
-          {visibleSources.map((source, index) => {
-            const position = positions[index];
+          <div className="constellation-core">
+            <span>✳</span>
+            <small>YOUR QUESTION</small>
+          </div>
 
-            return (
-              <button
-                key={source.id || index}
-                type="button"
-                className={`constellation-node ${activeSource === index ? "selected" : ""
-                  }`}
-                style={{
-                  left: `${position.x}%`,
-                  top: `${position.y}%`,
-                }}
-                onClick={() => setActiveSource(index)}
-                aria-label={`Inspect ${getSourceName(source)}`}
-                title={getSourceName(source)}
-              >
-                <span>{source.id || `S${index + 1}`}</span>
-              </button>
-            );
-          })}
+          {visible.map((source, index) => (
+            <button
+              key={source.id || index}
+              type="button"
+              className={`constellation-node ${selected === index ? "selected" : ""
+                }`}
+              style={{
+                left: `${positions[index][0]}%`,
+                top: `${positions[index][1]}%`,
+              }}
+              onClick={() => setSelected(index)}
+              title={getSourceName(source)}
+            >
+              {source.id || `S${index + 1}`}
+            </button>
+          ))}
         </div>
 
         <div className="evidence-detail">
-          <div className="evidence-detail-top">
-            <span className="evidence-source-tag">
-              {active.id || `S${activeSource + 1}`}
-            </span>
-            <span className="evidence-page">
-              PAGE {active.page ?? "N/A"}
-            </span>
+          <div className="detail-topline">
+            <span>{active.id || `S${selected + 1}`}</span>
+            <span>RETRIEVED PASSAGE</span>
           </div>
 
           <h4>{getSourceName(active)}</h4>
+          <div className="detail-page">
+            PAGE {active.page ?? "—"}
+          </div>
 
           <p>
             {active.text ||
@@ -184,189 +173,89 @@ function EvidenceMap({ sources }) {
               "Evidence retrieved from this document."}
           </p>
 
-          <div className="evidence-detail-footer">
-            <span>
-              <span className="evidence-status-dot" />
-              Retrieved evidence
-            </span>
-            <span>
-              {activeSource + 1} / {sources.length}
-            </span>
+          <div className="detail-footer">
+            <span className="evidence-dot" />
+            Connected to this response
           </div>
-
-          {sources.length > 1 && (
-            <div className="evidence-switcher">
-              <button
-                type="button"
-                onClick={() =>
-                  setActiveSource((current) =>
-                    current === 0 ? sources.length - 1 : current - 1
-                  )
-                }
-                aria-label="Previous source"
-              >
-                ←
-              </button>
-
-              <div className="evidence-switcher-dots">
-                {sources.map((source, index) => (
-                  <button
-                    key={source.id || index}
-                    type="button"
-                    className={activeSource === index ? "active" : ""}
-                    onClick={() => setActiveSource(index)}
-                    aria-label={`Select source ${index + 1}`}
-                  />
-                ))}
-              </div>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setActiveSource((current) =>
-                    (current + 1) % sources.length
-                  )
-                }
-                aria-label="Next source"
-              >
-                →
-              </button>
-            </div>
-          )}
         </div>
       </div>
+
+      {sources.length > 6 && (
+        <p className="constellation-note">
+          Showing 6 of {sources.length} sources. All sources are
+          available in the source list.
+        </p>
+      )}
     </section>
   );
 }
 
-function ResearchPipeline({ timings = {} }) {
+function ResearchTrace({ timings = {}, sources = [] }) {
   const steps = [
-    {
-      number: "01",
-      title: "Question",
-      description: "User query received",
-      time: null,
-    },
-    {
-      number: "02",
-      title: "Retrieval",
-      description: "Hybrid document search",
-      time: timings.retrieval_seconds ?? timings.retrieval,
-    },
-    {
-      number: "03",
-      title: "Reranking",
-      description: "Evidence relevance ranking",
-      time: null,
-    },
-    {
-      number: "04",
-      title: "Generation",
-      description: "Gemini response",
-      time: timings.generation_seconds ?? timings.generation,
-    },
+    ["01", "Your question", "Query received"],
+    ["02", "Hybrid retrieval", "Semantic + keyword search"],
+    ["03", "Evidence ranking", "Relevant passages"],
+    ["04", "Gemini response", "Grounded answer"],
   ];
 
   return (
-    <section className="insight-panel pipeline-panel">
+    <section className="insight-panel trace-panel">
       <div className="insight-heading">
         <div>
           <span className="panel-kicker">BEHIND THE ANSWER</span>
           <h3>Research pipeline</h3>
-          <p>How your question moves through AtlasQuery.</p>
+          <p>How AtlasQuery generated this response.</p>
         </div>
-
-        <span className="pipeline-live">
-          <span />
-          PROCESS COMPLETE
+        <span className="trace-live">
+          <i /> PROCESS COMPLETE
         </span>
       </div>
 
       <div className="pipeline-track">
-        {steps.map((step, index) => (
-          <div className="pipeline-step" key={step.number}>
+        {steps.map(([number, title, description], index) => (
+          <div className="pipeline-step" key={number}>
             <div className={`pipeline-number step-${index}`}>
-              {step.number}
+              {number}
             </div>
-
-            <div className="pipeline-step-copy">
-              <strong>{step.title}</strong>
-              <span>{step.description}</span>
-
-              {step.time !== null && step.time !== undefined && (
-                <small>{formatDuration(step.time)}</small>
-              )}
+            <div>
+              <strong>{title}</strong>
+              <span>{description}</span>
             </div>
-
             {index < 3 && <div className="pipeline-connector" />}
           </div>
         ))}
       </div>
-    </section>
-  );
-}
-
-function ResearchMetrics({ message }) {
-  const timings = message.timings || {};
-  const retrievalTime =
-    timings.retrieval_seconds ?? timings.retrieval;
-  const generationTime =
-    timings.generation_seconds ?? timings.generation;
-
-  const metrics = [
-    {
-      label: "RETRIEVAL",
-      value: formatDuration(retrievalTime),
-    },
-    {
-      label: "GENERATION",
-      value: formatDuration(generationTime),
-    },
-    {
-      label: "TOTAL TIME",
-      value: formatDuration(message.latency),
-    },
-    {
-      label: "EVIDENCE",
-      value: String(message.sources?.length || 0).padStart(2, "0"),
-    },
-  ];
-
-  const evidenceStatus = String(
-    message.evidenceStatus || "unknown"
-  ).toLowerCase();
-
-  return (
-    <section className="insight-panel metrics-panel">
-      <div className="metrics-heading">
-        <div>
-          <span className="panel-kicker">SYSTEM TELEMETRY</span>
-          <h3>Research activity</h3>
-        </div>
-
-        <span className="trace-live">
-          <span />
-          LIVE TRACE
-        </span>
-      </div>
 
       <div className="trace-metrics">
-        {metrics.map((metric) => (
-          <div className="trace-metric" key={metric.label}>
-            <span>{metric.label}</span>
-            <strong>{metric.value}</strong>
-          </div>
-        ))}
-      </div>
-
-      {evidenceStatus !== "unknown" && (
-        <div className="evidence-status-row">
-          <span>Evidence status</span>
-          <span className={`evidence-status-label ${evidenceStatus}`}>
-            {evidenceStatus.replaceAll("_", " ")}
-          </span>
+        <div className="trace-metric">
+          <span>RETRIEVAL</span>
+          <strong>
+            {formatDuration(
+              timings.retrieval_seconds ?? timings.retrieval
+            )}
+          </strong>
         </div>
-      )}
+        <div className="trace-metric">
+          <span>GENERATION</span>
+          <strong>
+            {formatDuration(
+              timings.generation_seconds ?? timings.generation
+            )}
+          </strong>
+        </div>
+        <div className="trace-metric">
+          <span>TOTAL TIME</span>
+          <strong>
+            {formatDuration(
+              timings.total_seconds ?? timings.total
+            )}
+          </strong>
+        </div>
+        <div className="trace-metric">
+          <span>EVIDENCE</span>
+          <strong>{sources.length}</strong>
+        </div>
+      </div>
     </section>
   );
 }
@@ -395,22 +284,17 @@ function Message({ message }) {
       )}
 
       <div className="message-content">
-        {message.role === "user" ? (
-          <>
-            <div className="message-label">
-              <span>You</span>
-              <span className="message-time">{message.time}</span>
-            </div>
+        <div className="message-label">
+          <span>
+            {message.role === "user" ? "You" : "AtlasQuery"}
+          </span>
+          <span className="message-time">{message.time}</span>
+        </div>
 
-            <div className="user-bubble">{message.content}</div>
-          </>
+        {message.role === "user" ? (
+          <div className="user-bubble">{message.content}</div>
         ) : (
           <>
-            <div className="message-label">
-              <span>AtlasQuery</span>
-              <span className="message-time">{message.time}</span>
-            </div>
-
             <div className="answer-text">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
@@ -447,7 +331,7 @@ function Message({ message }) {
                     <div>
                       <strong>Explore the evidence</strong>
                       <span>
-                        Visual breakdown of the retrieved knowledge
+                        Visual breakdown of retrieved knowledge
                       </span>
                     </div>
                   </div>
@@ -455,9 +339,8 @@ function Message({ message }) {
                   <button
                     type="button"
                     onClick={() =>
-                      setShowInsights((previous) => !previous)
+                      setShowInsights((value) => !value)
                     }
-                    aria-expanded={showInsights}
                   >
                     {showInsights ? "Hide insights −" : "Show insights +"}
                   </button>
@@ -466,8 +349,10 @@ function Message({ message }) {
                 {showInsights && (
                   <div className="research-visuals">
                     <EvidenceMap sources={message.sources} />
-                    <ResearchPipeline timings={message.timings} />
-                    <ResearchMetrics message={message} />
+                    <ResearchTrace
+                      timings={message.timings}
+                      sources={message.sources}
+                    />
                   </div>
                 )}
 
@@ -475,14 +360,12 @@ function Message({ message }) {
                   <button
                     type="button"
                     className="sources-toggle"
-                    onClick={() => setExpanded((previous) => !previous)}
-                    aria-expanded={expanded}
+                    onClick={() => setExpanded((value) => !value)}
                   >
                     <span>
                       <Icon name="file" />
                       {message.sources.length} evidence sources
                     </span>
-
                     <span>{expanded ? "−" : "+"}</span>
                   </button>
 
@@ -497,15 +380,14 @@ function Message({ message }) {
                             <span className="source-id">
                               {source.id || `S${index + 1}`}
                             </span>
-
                             <span className="source-page">
                               Page {source.page ?? "N/A"}
                             </span>
                           </div>
 
-                          <div className="source-name">
+                          <strong className="source-name">
                             {getSourceName(source)}
-                          </div>
+                          </strong>
 
                           <p>
                             {source.text ||
@@ -521,22 +403,17 @@ function Message({ message }) {
             )}
 
             <div className="message-footer">
-              <button
-                type="button"
-                onClick={copyAnswer}
-                title="Copy answer"
-              >
+              <button type="button" onClick={copyAnswer}>
                 <Icon name={copied ? "check" : "copy"} />
                 {copied ? "Copied" : "Copy answer"}
               </button>
 
-              {Number.isFinite(Number(message.latency)) &&
-                message.latency !== undefined && (
-                  <span>
-                    <Icon name="clock" />
-                    {Number(message.latency).toFixed(2)}s
-                  </span>
-                )}
+              {message.latency !== undefined && (
+                <span>
+                  <Icon name="clock" />
+                  {formatDuration(message.latency)}
+                </span>
+              )}
             </div>
           </>
         )}
@@ -557,6 +434,12 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [error, setError] = useState("");
 
+  const [documents, setDocuments] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
+
+  const fileInputRef = useRef(null);
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
   const loadingRef = useRef(false);
@@ -567,31 +450,20 @@ export default function App() {
     async function checkBackend() {
       try {
         const response = await fetch(`${API_URL}/api/health`);
-
-        if (!response.ok) {
-          throw new Error("Backend health check failed.");
-        }
+        if (!response.ok) throw new Error("Health check failed.");
 
         const data = await response.json();
 
-        if (active) {
-          setConnected(data.status === "ok");
-        }
+        if (active) setConnected(data.status === "ok");
       } catch (err) {
         console.error("Backend connection error:", err);
-
-        if (active) {
-          setConnected(false);
-        }
+        if (active) setConnected(false);
       } finally {
-        if (active) {
-          setChecking(false);
-        }
+        if (active) setChecking(false);
       }
     }
 
     checkBackend();
-
     const interval = setInterval(checkBackend, 30000);
 
     return () => {
@@ -607,6 +479,127 @@ export default function App() {
     });
   }, [messages, loading]);
 
+  async function uploadPdfs(fileList) {
+    const files = Array.from(fileList || []);
+
+    if (!files.length || uploading) return;
+
+    const invalid = files.filter(
+      (file) =>
+        file.type !== "application/pdf" &&
+        !file.name.toLowerCase().endsWith(".pdf")
+    );
+
+    if (invalid.length) {
+      setError(
+        `Only PDF files are supported: ${invalid
+          .map((file) => file.name)
+          .join(", ")}`
+      );
+      return;
+    }
+
+    const oversized = files.filter(
+      (file) => file.size > 25 * 1024 * 1024
+    );
+
+    if (oversized.length) {
+      setError(
+        `Each PDF must be 25 MB or smaller: ${oversized
+          .map((file) => file.name)
+          .join(", ")}`
+      );
+      return;
+    }
+
+    const formData = new FormData();
+    files.forEach((file) => formData.append("files", file));
+
+    setUploading(true);
+    setError("");
+    setUploadProgress(`Uploading ${files.length} PDF(s)...`);
+
+    try {
+      const response = await fetch(`${API_URL}/api/upload`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          typeof data.detail === "string"
+            ? data.detail
+            : `PDF upload failed (${response.status}).`
+        );
+      }
+
+      const returned = Array.isArray(data.documents)
+        ? data.documents
+        : [];
+
+      if (!returned.length) {
+        throw new Error(
+          "The backend did not return an indexed documents array."
+        );
+      }
+
+      const normalized = returned.map((item) => ({
+        id: item.document_id || item.id,
+        filename: item.filename || item.name || "Uploaded PDF",
+        pages: item.pages ?? item.page_count ?? null,
+        chunks: item.chunks ?? item.chunk_count ?? null,
+        status: item.status || "indexed",
+      })).filter((item) => item.id);
+
+      if (!normalized.length) {
+        throw new Error(
+          "The upload response did not contain document IDs."
+        );
+      }
+
+      setDocuments((previous) => {
+        const existing = new Map(
+          previous.map((document) => [document.id, document])
+        );
+
+        normalized.forEach((document) =>
+          existing.set(document.id, document)
+        );
+
+        return Array.from(existing.values());
+      });
+
+      setUploadProgress(
+        `${normalized.length} PDF(s) added to your research library.`
+      );
+    } catch (err) {
+      console.error("PDF upload error:", err);
+      setError(err.message || "Unable to upload PDFs.");
+      setUploadProgress("");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  function handleFileSelection(event) {
+    uploadPdfs(event.target.files);
+  }
+
+  function handleDrop(event) {
+    event.preventDefault();
+    setIsDragging(false);
+    uploadPdfs(event.dataTransfer.files);
+  }
+
+  function removeDocument(documentId) {
+    setDocuments((previous) =>
+      previous.filter((document) => document.id !== documentId)
+    );
+  }
+
   function newConversation() {
     if (loadingRef.current) return;
 
@@ -615,9 +608,7 @@ export default function App() {
     setInput("");
     setError("");
 
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-    });
+    requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
   async function sendMessage(value) {
@@ -626,9 +617,12 @@ export default function App() {
     if (!question || loadingRef.current) return;
 
     if (!connected) {
-      setError(
-        "Backend is not connected. Please check your FastAPI server."
-      );
+      setError("Backend is not connected. Please try again.");
+      return;
+    }
+
+    if (documents.length === 0) {
+      setError("Upload at least one PDF before asking a question.");
       return;
     }
 
@@ -663,6 +657,7 @@ export default function App() {
         body: JSON.stringify({
           question,
           history: previousHistory.slice(-12),
+          document_ids: documents.map((document) => document.id),
         }),
       });
 
@@ -677,36 +672,30 @@ export default function App() {
       if (!response.ok) {
         const detail = data.detail;
 
-        let errorMessage =
+        let message =
           typeof detail === "string"
             ? detail
-            : `Request failed with status ${response.status}.`;
+            : `Request failed (${response.status}).`;
 
         if (response.status === 429) {
-          errorMessage =
-            "API request limit reached. Please check your Gemini quota and try again later.";
+          message = "Gemini API rate limit reached. Please try later.";
         } else if (response.status === 503) {
-          errorMessage =
-            "Gemini service is temporarily unavailable. Please try again later.";
-        } else if (response.status === 401 || response.status === 403) {
-          errorMessage =
-            "API authentication failed. Please check the backend API configuration.";
-        } else if (response.status >= 500 && !detail) {
-          errorMessage =
-            "The backend encountered an error. Please try again.";
+          message = "Gemini is temporarily unavailable. Please try again.";
+        } else if (
+          response.status === 401 ||
+          response.status === 403
+        ) {
+          message = "API authentication failed. Check backend configuration.";
         }
 
-        throw new Error(errorMessage);
+        throw new Error(message);
       }
 
       if (
-        !data.answer ||
         typeof data.answer !== "string" ||
         !data.answer.trim()
       ) {
-        throw new Error(
-          "The AI returned an empty response. Please try again."
-        );
+        throw new Error("The AI returned an empty response.");
       }
 
       const assistantMessage = {
@@ -719,37 +708,27 @@ export default function App() {
         timings: data.timings || {},
         warnings: Array.isArray(data.warnings) ? data.warnings : [],
         evidenceStatus: data.evidence_status || "unknown",
-        requestId: data.request_id || null,
-        tokenUsage: data.token_usage || {},
-        finishReason: data.finish_reason || null,
       };
 
-      setMessages((previous) => [...previous, assistantMessage]);
+      setMessages((previous) => [
+        ...previous,
+        assistantMessage,
+      ]);
 
       setHistory((previous) => [
         ...previous,
-        {
-          role: "user",
-          content: question,
-        },
-        {
-          role: "assistant",
-          content: data.answer,
-        },
+        { role: "user", content: question },
+        { role: "assistant", content: data.answer },
       ]);
     } catch (err) {
       console.error("AtlasQuery chat error:", err);
-
       setError(
         err.message || "Unable to generate an answer. Please try again."
       );
     } finally {
       loadingRef.current = false;
       setLoading(false);
-
-      requestAnimationFrame(() => {
-        textareaRef.current?.focus();
-      });
+      requestAnimationFrame(() => textareaRef.current?.focus());
     }
   }
 
@@ -773,14 +752,14 @@ export default function App() {
       const data = await response.json();
 
       if (!response.ok || data.status !== "ok") {
-        throw new Error("Backend is unavailable.");
+        throw new Error("Backend unavailable.");
       }
 
       setConnected(true);
       setError("");
     } catch {
       setConnected(false);
-      setError("Unable to connect. Check that FastAPI is running.");
+      setError("Unable to connect to the backend.");
     } finally {
       setChecking(false);
     }
@@ -788,6 +767,15 @@ export default function App() {
 
   return (
     <div className="atlas-app">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        multiple
+        hidden
+        onChange={handleFileSelection}
+      />
+
       <aside
         className={`sidebar ${sidebarOpen ? "" : "sidebar-hidden"
           }`}
@@ -819,7 +807,7 @@ export default function App() {
           disabled={loading}
         >
           <Icon name="plus" />
-          <span>New conversation</span>
+          New conversation
         </button>
 
         <div className="sidebar-section">
@@ -837,16 +825,96 @@ export default function App() {
           </div>
         </div>
 
+        <div className="sidebar-section documents-sidebar-section">
+          <div className="documents-section-heading">
+            <span>YOUR DOCUMENTS</span>
+            <span className="document-count">{documents.length}</span>
+          </div>
+
+          <div
+            className={`upload-dropzone ${isDragging ? "dragging" : ""
+              }`}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={handleDrop}
+          >
+            <div className="upload-dropzone-icon">
+              <Icon name="upload" />
+            </div>
+
+            <div className="upload-dropzone-copy">
+              <strong>
+                {uploading ? "Indexing PDFs..." : "Add research PDFs"}
+              </strong>
+              <span>PDF files · Up to 25 MB each</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              aria-label="Upload PDFs"
+            >
+              {uploading ? "..." : "+"}
+            </button>
+          </div>
+
+          {uploadProgress && (
+            <div className="upload-feedback">{uploadProgress}</div>
+          )}
+
+          <div className="uploaded-document-list">
+            {documents.map((document) => (
+              <div
+                className="uploaded-document"
+                key={document.id}
+                title={document.filename}
+              >
+                <span className="uploaded-pdf-icon">PDF</span>
+
+                <div className="uploaded-document-copy">
+                  <strong>{document.filename}</strong>
+                  <span>
+                    {document.pages ?? "—"} pages
+                    {document.chunks != null
+                      ? ` · ${document.chunks} chunks`
+                      : ""}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  className="remove-document"
+                  onClick={() => removeDocument(document.id)}
+                  aria-label={`Remove ${document.filename} from this chat`}
+                  title="Remove from this chat"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+
+            {documents.length === 0 && (
+              <p className="documents-empty">
+                Your uploaded PDFs will appear here.
+              </p>
+            )}
+          </div>
+        </div>
+
         <div className="sidebar-section history-section">
           <div className="section-heading">RECENT ACTIVITY</div>
 
-          {messages.filter((m) => m.role === "user").length === 0 ? (
+          {messages.filter((message) => message.role === "user").length === 0 ? (
             <div className="empty-history">
               Your conversations will appear here.
             </div>
           ) : (
             messages
-              .filter((m) => m.role === "user")
+              .filter((message) => message.role === "user")
               .map((message) => (
                 <div
                   className="history-item"
@@ -866,7 +934,6 @@ export default function App() {
               className={`status-dot ${connected ? "online" : "offline"
                 }`}
             />
-
             <span>
               {checking
                 ? "Checking backend..."
@@ -887,7 +954,6 @@ export default function App() {
 
           <div className="sidebar-profile">
             <div className="profile-avatar">A</div>
-
             <div>
               <strong>Research Workspace</strong>
               <span>Personal environment</span>
@@ -914,12 +980,16 @@ export default function App() {
               <div className="topbar-eyebrow">
                 YOUR AI RESEARCH WORKSPACE
               </div>
-
               <h1>Document Research</h1>
             </div>
           </div>
 
           <div className="topbar-right">
+            <div className="topbar-document-count">
+              <Icon name="file" />
+              {documents.length} documents
+            </div>
+
             <div
               className={`connection-pill ${connected ? "connected" : ""
                 }`}
@@ -928,7 +998,6 @@ export default function App() {
                 className={`status-dot ${connected ? "online" : "offline"
                   }`}
               />
-
               {checking
                 ? "Connecting..."
                 : connected
@@ -956,10 +1025,20 @@ export default function App() {
               </h2>
 
               <p className="welcome-description">
-                Ask questions, uncover insights, and explore your
-                indexed research papers with AI-powered retrieval
-                and evidence-backed answers.
+                Upload your research papers and reports. Ask questions
+                across multiple PDFs and receive evidence-backed answers
+                powered by hybrid retrieval.
               </p>
+
+              <button
+                type="button"
+                className="welcome-upload-button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+              >
+                <Icon name="upload" />
+                {uploading ? "Uploading..." : "Upload research PDFs"}
+              </button>
 
               <div className="suggestion-grid">
                 {suggestions.map((item) => (
@@ -968,17 +1047,15 @@ export default function App() {
                     className="suggestion-card"
                     key={item.title}
                     onClick={() => sendMessage(item.question)}
-                    disabled={loading || !connected}
+                    disabled={
+                      loading || !connected || documents.length === 0
+                    }
                   >
-                    <span className="suggestion-icon">
-                      {item.icon}
-                    </span>
-
+                    <span className="suggestion-icon">{item.icon}</span>
                     <div>
                       <strong>{item.title}</strong>
                       <p>{item.description}</p>
                     </div>
-
                     <span className="suggestion-arrow">↗</span>
                   </button>
                 ))}
@@ -988,7 +1065,9 @@ export default function App() {
                 <span>✳</span>
                 Powered by Gemini AI
                 <span>·</span>
-                Hybrid document retrieval
+                FastEmbed + Qdrant
+                <span>·</span>
+                Hybrid retrieval
               </div>
 
               {!connected && !checking && (
@@ -1005,7 +1084,6 @@ export default function App() {
             <div className="conversation-container">
               <div className="conversation-heading">
                 <span>CONVERSATION</span>
-
                 <button
                   type="button"
                   onClick={newConversation}
@@ -1017,10 +1095,7 @@ export default function App() {
               </div>
 
               {messages.map((message) => (
-                <Message
-                  message={message}
-                  key={message.id}
-                />
+                <Message message={message} key={message.id} />
               ))}
 
               {loading && (
@@ -1032,18 +1107,16 @@ export default function App() {
                   <div className="message-content">
                     <div className="message-label">
                       AtlasQuery
-                      <span className="thinking-label">
-                        REASONING
-                      </span>
+                      <span className="thinking-label">REASONING</span>
                     </div>
 
                     <div className="loading-indicator">
                       <span />
                       <span />
                       <span />
-
                       <p>
-                        Searching documents and generating an answer...
+                        Searching {documents.length} document(s) and
+                        generating an answer...
                       </p>
                     </div>
                   </div>
@@ -1058,7 +1131,6 @@ export default function App() {
         {error && (
           <div className="error-banner" role="alert">
             <span>{error}</span>
-
             <button
               type="button"
               onClick={() => setError("")}
@@ -1070,19 +1142,20 @@ export default function App() {
         )}
 
         <footer className="input-area">
-          <form
-            className="input-container"
-            onSubmit={handleSubmit}
-          >
+          <form className="input-container" onSubmit={handleSubmit}>
             <textarea
               ref={textareaRef}
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask anything about your indexed documents..."
+              placeholder={
+                documents.length
+                  ? "Ask anything across your uploaded PDFs..."
+                  : "Upload PDFs to start your research..."
+              }
               rows={2}
               maxLength={4000}
-              disabled={loading}
+              disabled={loading || documents.length === 0}
             />
 
             <div className="input-bottom">
@@ -1090,13 +1163,20 @@ export default function App() {
                 <span className="input-engine-icon">✳</span>
                 <span>Gemini AI</span>
                 <span className="input-divider">·</span>
-                <span>Document RAG</span>
+                <span>Multi-document RAG</span>
+                <span className="input-divider">·</span>
+                <span>{documents.length} PDFs</span>
               </div>
 
               <button
                 type="submit"
                 className="send-button"
-                disabled={!input.trim() || loading || !connected}
+                disabled={
+                  !input.trim() ||
+                  loading ||
+                  !connected ||
+                  documents.length === 0
+                }
                 aria-label="Send message"
               >
                 {loading ? "•••" : "↑"}
@@ -1105,8 +1185,8 @@ export default function App() {
           </form>
 
           <div className="disclaimer">
-            AI-generated responses may contain errors.
-            Always verify important claims against original documents.
+            AI-generated responses may contain errors. Always verify
+            important claims against your original documents.
           </div>
         </footer>
       </main>

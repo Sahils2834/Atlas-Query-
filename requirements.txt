@@ -1,8 +1,9 @@
-pymupdf
-fastembed
-rank-bm25
-qdrant-client
-google-genai
-python-dotenv
 fastapi
-uvicorn[standard]
+uvicorn
+python-multipart
+python-dotenv
+google-genai
+qdrant-client
+fastembed
+pymupdf
+rank-bm25
