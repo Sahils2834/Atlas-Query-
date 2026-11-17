@@ -9,16 +9,16 @@ from time import perf_counter
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient, models
 from rank_bm25 import BM25Okapi
-from fastembed import TextEmbedding
 
+from src.embedding import get_embedder
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # ==================================================
 # CONFIGURATION
 # ==================================================
-
-logger = logging.getLogger(__name__)
 
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
@@ -26,11 +26,6 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 COLLECTION_NAME = os.getenv(
     "QDRANT_COLLECTION",
     "atlasquery_documents"
-)
-
-EMBEDDING_MODEL = os.getenv(
-    "EMBEDDING_MODEL",
-    "all-MiniLM-L6-v2"
 )
 
 VECTOR_SIZE = 384
@@ -41,8 +36,6 @@ DEFAULT_CANDIDATE_K = int(os.getenv("CANDIDATE_K", "20"))
 RRF_K = 60
 
 FILTER_REFERENCE_CHUNKS = True
-
-# Keep disabled on the Render free instance.
 ENABLE_RERANKER = False
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -58,14 +51,10 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 def get_qdrant_client():
 
     if not QDRANT_URL:
-        raise RuntimeError(
-            "QDRANT_URL is missing from environment variables."
-        )
+        raise RuntimeError("QDRANT_URL is missing.")
 
     if not QDRANT_API_KEY:
-        raise RuntimeError(
-            "QDRANT_API_KEY is missing from environment variables."
-        )
+        raise RuntimeError("QDRANT_API_KEY is missing.")
 
     return QdrantClient(
         url=QDRANT_URL,
@@ -76,9 +65,9 @@ def get_qdrant_client():
 
 def check_collection():
 
-    client = get_qdrant_client()
-
-    info = client.get_collection(COLLECTION_NAME)
+    info = get_qdrant_client().get_collection(
+        COLLECTION_NAME
+    )
 
     return {
         "points_count": info.points_count or 0,
@@ -87,64 +76,15 @@ def check_collection():
 
 
 # ==================================================
-# FASTEMBED MODEL
-# ==================================================
-
-def get_fastembed_model_name():
-
-    if EMBEDDING_MODEL.startswith("sentence-transformers/"):
-        return EMBEDDING_MODEL
-
-    return f"sentence-transformers/{EMBEDDING_MODEL}"
-
-
-@lru_cache(maxsize=1)
-def get_embedder():
-
-    model_name = get_fastembed_model_name()
-
-    logger.info(
-        "Loading FastEmbed model: %s",
-        model_name
-    )
-
-    return TextEmbedding(
-        model_name=model_name,
-        threads=1
-    )
-
-
-# ==================================================
 # TEXT UTILITIES
 # ==================================================
 
-def tokenize(text: str) -> list[str]:
+def tokenize(text):
 
     return re.findall(r"\b\w+\b", text.lower())
 
 
-def normalize_text(text: str) -> str:
-
-    return " ".join(text.lower().split())
-
-
-def time_elapsed(start):
-
-    return perf_counter() - start
-
-
-# ==================================================
-# DOCUMENT FILTER
-# ==================================================
-
 def normalize_document_ids(document_ids=None):
-
-    """
-    Normalize document IDs supplied by the API.
-
-    None means search the entire collection.
-    An empty list means search no documents.
-    """
 
     if document_ids is None:
         return None
@@ -152,23 +92,18 @@ def normalize_document_ids(document_ids=None):
     if isinstance(document_ids, str):
         document_ids = [document_ids]
 
-    normalized = sorted({
-        str(document_id).strip()
-        for document_id in document_ids
-        if document_id and str(document_id).strip()
-    })
-
-    return tuple(normalized)
+    return tuple(sorted({
+        str(item).strip()
+        for item in document_ids
+        if item and str(item).strip()
+    }))
 
 
 def build_document_filter(document_ids=None):
 
     document_ids = normalize_document_ids(document_ids)
 
-    if document_ids is None:
-        return None
-
-    if not document_ids:
+    if document_ids is None or not document_ids:
         return None
 
     return models.Filter(
@@ -194,26 +129,14 @@ REFERENCE_SECTION_PATTERN = re.compile(
 )
 
 REFERENCE_LINE_PATTERNS = [
-    re.compile(
-        r"\bdoi\s*:\s*10\.\d{4,9}/",
-        re.IGNORECASE
-    ),
-    re.compile(
-        r"https?://\S+",
-        re.IGNORECASE
-    ),
-    re.compile(
-        r"\barxiv\s*:\s*\d{4}\.\d{4,5}",
-        re.IGNORECASE
-    ),
-    re.compile(
-        r"\bet al\.\s*\(?\d{4}\)?",
-        re.IGNORECASE
-    ),
+    re.compile(r"\bdoi\s*:\s*10\.\d{4,9}/", re.I),
+    re.compile(r"https?://\S+", re.I),
+    re.compile(r"\barxiv\s*:\s*\d{4}\.\d{4,5}", re.I),
+    re.compile(r"\bet al\.\s*\(?\d{4}\)?", re.I),
 ]
 
 
-def is_reference_like(candidate: dict) -> bool:
+def is_reference_like(candidate):
 
     metadata = candidate.get("metadata") or {}
 
@@ -261,10 +184,7 @@ def is_reference_like(candidate: dict) -> bool:
     for line in lines:
 
         has_year = bool(
-            re.search(
-                r"\b(?:19|20)\d{2}[a-z]?\b",
-                line
-            )
+            re.search(r"\b(?:19|20)\d{2}[a-z]?\b", line)
         )
 
         has_author = bool(
@@ -294,7 +214,6 @@ def is_reference_like(candidate: dict) -> bool:
 def build_candidate(point, distance=None):
 
     payload = point.payload or {}
-
     metadata = payload.get("metadata") or {}
 
     text = (
@@ -337,35 +256,28 @@ def build_candidate(point, distance=None):
         "text": str(text),
         "source": str(source),
         "page": page,
-
         "document_id": payload.get(
             "document_id",
             metadata.get("document_id")
         ),
-
         "chunk_index": payload.get(
             "chunk_index",
             metadata.get("chunk_index", "?")
         ),
-
         "section": payload.get(
             "section",
             metadata.get("section", "general")
         ),
-
         "section_heading": payload.get(
             "section_heading",
             metadata.get("section_heading", "General")
         ),
-
         "metadata": combined_metadata,
-
         "distance": (
             float(distance)
             if distance is not None
             else None
         ),
-
         "vector_rank": None,
         "bm25_rank": None,
         "bm25_score": None,
@@ -378,22 +290,12 @@ def build_candidate(point, distance=None):
 # BM25 INDEX
 # ==================================================
 
-@lru_cache(maxsize=8)
+@lru_cache(maxsize=2)
 def get_bm25_index(document_ids=None):
 
-    """
-    Build a BM25 index.
-
-    If document IDs are provided, only chunks belonging
-    to those uploaded PDFs are included.
-
-    The tuple-based cache allows different uploaded
-    document combinations to have separate indexes.
-    """
-
     logger.info(
-        "Building BM25 index. Documents: %s",
-        document_ids if document_ids else "All"
+        "Building BM25 index for: %s",
+        document_ids if document_ids else "all documents"
     )
 
     client = get_qdrant_client()
@@ -403,16 +305,14 @@ def get_bm25_index(document_ids=None):
 
     offset = None
 
-    query_filter = build_document_filter(
-        document_ids
-    )
+    query_filter = build_document_filter(document_ids)
 
     while True:
 
         points, next_offset = client.scroll(
             collection_name=COLLECTION_NAME,
             scroll_filter=query_filter,
-            limit=256,
+            limit=128,
             offset=offset,
             with_payload=True,
             with_vectors=False
@@ -421,7 +321,6 @@ def get_bm25_index(document_ids=None):
         for point in points:
 
             candidate = build_candidate(point)
-
             text = candidate["text"]
 
             if not text.strip():
@@ -447,17 +346,13 @@ def get_bm25_index(document_ids=None):
         offset = next_offset
 
     if not corpus:
-
-        logger.warning(
-            "No indexed documents available for BM25."
-        )
-
+        logger.warning("No indexed documents available for BM25.")
         return None, []
 
     bm25 = BM25Okapi(corpus)
 
     logger.info(
-        "BM25 index ready with %s chunks.",
+        "BM25 index built with %s chunks",
         len(records)
     )
 
@@ -468,11 +363,7 @@ def get_bm25_index(document_ids=None):
 # VECTOR SEARCH
 # ==================================================
 
-def vector_search(
-    question,
-    candidate_k,
-    document_ids=None
-):
+def vector_search(question, candidate_k, document_ids=None):
 
     client = get_qdrant_client()
     embedder = get_embedder()
@@ -480,7 +371,7 @@ def vector_search(
     embedding_start = perf_counter()
 
     embedding = next(
-        embedder.embed([question])
+        embedder.query_embed([question])
     )
 
     vector = embedding.tolist()
@@ -490,18 +381,14 @@ def vector_search(
     )
 
     if len(vector) != VECTOR_SIZE:
-
         raise RuntimeError(
             f"Embedding dimension mismatch: "
-            f"expected {VECTOR_SIZE}, "
-            f"received {len(vector)}."
+            f"expected {VECTOR_SIZE}, received {len(vector)}"
         )
 
     search_start = perf_counter()
 
-    query_filter = build_document_filter(
-        document_ids
-    )
+    query_filter = build_document_filter(document_ids)
 
     response = client.query_points(
         collection_name=COLLECTION_NAME,
@@ -547,19 +434,11 @@ def vector_search(
 # BM25 KEYWORD SEARCH
 # ==================================================
 
-def keyword_search(
-    question,
-    candidate_k,
-    document_ids=None
-):
+def keyword_search(question, candidate_k, document_ids=None):
 
-    normalized_ids = normalize_document_ids(
-        document_ids
-    )
+    normalized_ids = normalize_document_ids(document_ids)
 
-    bm25, records = get_bm25_index(
-        normalized_ids
-    )
+    bm25, records = get_bm25_index(normalized_ids)
 
     if bm25 is None:
         return []
@@ -624,7 +503,6 @@ def reciprocal_rank_fusion(
             point_id = candidate["id"]
 
             if point_id not in fused:
-
                 fused[point_id] = dict(candidate)
                 fused[point_id]["rrf_score"] = 0.0
 
@@ -640,17 +518,13 @@ def reciprocal_rank_fusion(
 
 
 # ==================================================
-# OPTIONAL RERANKING
+# RERANKING
 # ==================================================
 
-def rerank_candidates(
-    question,
-    candidates,
-    top_k
-):
+def rerank_candidates(question, candidates, top_k):
 
-    # CrossEncoder is intentionally not loaded.
-    # This avoids bringing PyTorch into the hosted backend.
+    # CrossEncoder/PyTorch intentionally disabled
+    # to keep memory usage low on Render Free.
 
     return candidates[:top_k]
 
@@ -663,49 +537,24 @@ def retrieve(
     question,
     top_k=DEFAULT_TOP_K,
     candidate_k=DEFAULT_CANDIDATE_K,
-    use_reranker=True,
+    use_reranker=False,
     return_timings=False,
     use_hybrid=True,
     document_ids=None
 ):
 
-    """
-    Hybrid retrieval across multiple uploaded PDFs.
-
-    document_ids:
-        None:
-            Search the entire Qdrant collection.
-
-        ["id1", "id2"]:
-            Search only the selected uploaded PDFs.
-
-        []:
-            Return no results.
-    """
-
     total_start = perf_counter()
-
     timings = {}
 
     if not question or not question.strip():
+        return ([], timings) if return_timings else []
 
-        if return_timings:
-            return [], timings
-
-        return []
-
-    normalized_ids = normalize_document_ids(
-        document_ids
-    )
+    normalized_ids = normalize_document_ids(document_ids)
 
     if normalized_ids is not None and not normalized_ids:
+        return ([], timings) if return_timings else []
 
-        if return_timings:
-            return [], timings
-
-        return []
-
-    # 1. Vector retrieval
+    # 1. Semantic vector retrieval
 
     vector_start = perf_counter()
 
@@ -720,21 +569,18 @@ def retrieve(
     )
 
     timings["embedding_seconds"] = round(
-        embedding_seconds,
-        4
+        embedding_seconds, 4
     )
 
     timings["vector_search_seconds"] = round(
-        vector_seconds,
-        4
+        vector_seconds, 4
     )
 
     timings["vector_retrieval_seconds"] = round(
-        time_elapsed(vector_start),
-        4
+        perf_counter() - vector_start, 4
     )
 
-    # 2. BM25 retrieval
+    # 2. BM25 keyword retrieval
 
     keyword_start = perf_counter()
 
@@ -747,15 +593,13 @@ def retrieve(
         )
 
     else:
-
         keyword_results = []
 
     timings["keyword_search_seconds"] = round(
-        time_elapsed(keyword_start),
-        4
+        perf_counter() - keyword_start, 4
     )
 
-    # 3. Hybrid fusion
+    # 3. Reciprocal Rank Fusion
 
     fusion_start = perf_counter()
 
@@ -767,15 +611,13 @@ def retrieve(
         )
 
     else:
-
         candidates = vector_results
 
     timings["fusion_seconds"] = round(
-        time_elapsed(fusion_start),
-        4
+        perf_counter() - fusion_start, 4
     )
 
-    # 4. Reranking disabled
+    # 4. Keep reranking disabled
 
     rerank_start = perf_counter()
 
@@ -786,17 +628,14 @@ def retrieve(
     )
 
     timings["reranking_seconds"] = round(
-        time_elapsed(rerank_start),
-        4
+        perf_counter() - rerank_start, 4
     )
 
     timings["retrieval_seconds"] = round(
-        perf_counter() - total_start,
-        4
+        perf_counter() - total_start, 4
     )
 
     timings["vector_candidates"] = len(vector_results)
-
     timings["keyword_candidates"] = len(keyword_results)
 
     timings["reranker_enabled"] = False
@@ -811,78 +650,3 @@ def retrieve(
         return candidates, timings
 
     return candidates
-
-
-# ==================================================
-# DIRECT TEST
-# ==================================================
-
-if __name__ == "__main__":
-
-    import sys
-
-    logging.basicConfig(
-        level=logging.WARNING,
-        format="%(levelname)s: %(message)s"
-    )
-
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("qdrant_client").setLevel(logging.WARNING)
-
-    print("\nConnecting to Qdrant...", flush=True)
-
-    info = check_collection()
-
-    print("Qdrant connection successful.", flush=True)
-    print("Collection:", COLLECTION_NAME, flush=True)
-    print("Indexed points:", info["points_count"], flush=True)
-    print("Reranker enabled: False", flush=True)
-
-    if info["points_count"] == 0:
-
-        print("Collection is empty.", flush=True)
-        sys.exit(0)
-
-    print("\nEnter your test question below:", flush=True)
-
-    try:
-        question = input("Question: ").strip()
-
-    except (EOFError, KeyboardInterrupt):
-
-        print("\nInput cancelled.")
-        sys.exit(0)
-
-    if not question:
-
-        print("Please enter a valid question.")
-        sys.exit(0)
-
-    print("\nSearching documents...\n", flush=True)
-
-    results, timings = retrieve(
-        question,
-        top_k=3,
-        candidate_k=20,
-        use_reranker=False,
-        return_timings=True
-    )
-
-    if not results:
-        print("No relevant documents retrieved.")
-
-    for index, result in enumerate(results, start=1):
-
-        print(f"\nSOURCE {index}")
-        print("Document:", result["source"])
-        print("Page:", result["page"])
-        print("Document ID:", result["document_id"])
-        print("RRF score:", result["rrf_score"])
-        print("Text:", result["text"][:700])
-        print("-" * 60)
-
-    print("\nRETRIEVAL TIMINGS")
-
-    for key, value in timings.items():
-        print(f"{key}: {value}")

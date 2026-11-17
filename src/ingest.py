@@ -3,13 +3,16 @@ import os
 import re
 import uuid
 import logging
+
 from pathlib import Path
-from typing import Optional, Iterable
+from functools import lru_cache
 
 import fitz
+
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient, models
-from fastembed import TextEmbedding
+
+from src.embedding import get_embedder
 
 
 # ==================================================
@@ -41,8 +44,10 @@ CHUNK_OVERLAP_WORDS = int(
     os.getenv("CHUNK_OVERLAP_WORDS", "60")
 )
 
-BATCH_SIZE = int(
-    os.getenv("INGEST_BATCH_SIZE", "16")
+# Smaller batches reduce peak memory usage on Render Free.
+BATCH_SIZE = max(
+    1,
+    int(os.getenv("INGEST_BATCH_SIZE", "4"))
 )
 
 VECTOR_SIZE = 384
@@ -53,50 +58,30 @@ MIN_CHUNK_WORDS = 35
 
 
 # ==================================================
-# FASTEMBED MODEL
+# SHARED FASTEMBED MODEL
 # ==================================================
 
-_embedding_model = None
-
-
-def get_fastembed_model_name():
-
-    if EMBEDDING_MODEL.startswith("sentence-transformers/"):
-        return EMBEDDING_MODEL
-
-    return f"sentence-transformers/{EMBEDDING_MODEL}"
-
-
 def get_embedding_model():
+    """
+    Return the shared FastEmbed model.
 
-    global _embedding_model
-
-    if _embedding_model is None:
-
-        logger.info(
-            "Loading FastEmbed model: %s",
-            get_fastembed_model_name()
-        )
-
-        _embedding_model = TextEmbedding(
-            model_name=get_fastembed_model_name(),
-            threads=1
-        )
-
-    return _embedding_model
+    The model is initialized and cached in src.embedding.
+    Both ingestion and retrieval reuse the same instance.
+    """
+    return get_embedder()
 
 
 # ==================================================
 # QDRANT CONNECTION
 # ==================================================
 
+@lru_cache(maxsize=1)
 def get_qdrant_client():
 
     url = os.getenv("QDRANT_URL")
     api_key = os.getenv("QDRANT_API_KEY")
 
     if not url or not api_key:
-
         raise ValueError(
             "QDRANT_URL and QDRANT_API_KEY must be configured."
         )
@@ -144,25 +129,20 @@ def clean_text(text):
 def extract_pdf_pages(pdf_path):
 
     try:
-
         with fitz.open(pdf_path) as document:
-
             yield from extract_document_pages(document)
 
     except Exception:
-
         logger.exception(
             "Error reading PDF: %s",
             pdf_path
         )
-
         raise
 
 
 def extract_pdf_bytes(pdf_bytes):
 
     try:
-
         with fitz.open(
             stream=pdf_bytes,
             filetype="pdf"
@@ -171,11 +151,9 @@ def extract_pdf_bytes(pdf_bytes):
             yield from extract_document_pages(document)
 
     except Exception:
-
         logger.exception(
             "Error extracting uploaded PDF."
         )
-
         raise
 
 
@@ -223,7 +201,6 @@ def remove_references(text):
         )
 
         if match and match.start() > len(text) * 0.55:
-
             return text[:match.start()].strip()
 
     return text
@@ -261,7 +238,10 @@ def create_chunks(text):
         if end >= len(words):
             break
 
-        start = end - CHUNK_OVERLAP_WORDS
+        start = max(
+            0,
+            end - CHUNK_OVERLAP_WORDS
+        )
 
     return chunks
 
@@ -368,7 +348,6 @@ def ensure_collection(client):
 
         except Exception as error:
 
-            # Existing indexes are fine.
             logger.info(
                 "Payload index note for %s: %s",
                 field_name,
@@ -386,8 +365,6 @@ def build_records_from_pages(
     document_id
 ):
 
-    chunk_count = 0
-
     for page_data in pages:
 
         page_text = remove_references(
@@ -397,8 +374,6 @@ def build_records_from_pages(
         chunks = create_chunks(page_text)
 
         for chunk_index, chunk in enumerate(chunks):
-
-            chunk_count += 1
 
             yield {
                 "id": generate_point_id(
@@ -453,6 +428,7 @@ def upload_batch(
         for record in records
     ]
 
+    # Generate embeddings in a small batch.
     embeddings = list(
         embedding_model.embed(
             texts,
@@ -531,6 +507,9 @@ def ingest_pages(
     uploaded_points = 0
     total_pages = 0
 
+    # Process one page at a time.
+    # Do not materialize the entire PDF in memory.
+
     for page_data in pages:
 
         total_pages += 1
@@ -558,6 +537,7 @@ def ingest_pages(
             }
 
             batch.append(record)
+
             total_chunks += 1
 
             if len(batch) >= BATCH_SIZE:
@@ -568,9 +548,13 @@ def ingest_pages(
                     batch
                 )
 
+                # Release batch references immediately.
                 batch.clear()
 
-    # Upload the remaining records.
+        del chunks
+        del page_text
+
+    # Upload remaining records.
     if batch:
 
         uploaded_points += upload_batch(
@@ -578,6 +562,8 @@ def ingest_pages(
             embedding_model,
             batch
         )
+
+        batch.clear()
 
     if uploaded_points == 0:
 
@@ -618,7 +604,6 @@ def ingest_uploaded_pdf(
     if document_id is None:
         document_id = str(uuid.uuid4())
 
-    # Validate PDF structure before ingestion.
     try:
 
         with fitz.open(
@@ -638,32 +623,29 @@ def ingest_uploaded_pdf(
                     "The uploaded PDF contains no pages."
                 )
 
-            # Materialize page data before closing the document.
-            pages = list(
-                extract_document_pages(document)
+            # Stream pages directly into ingestion.
+            # Do not convert this generator to list().
+            result = ingest_pages(
+                pages=extract_document_pages(document),
+                filename=filename,
+                document_id=document_id
             )
+
+            return result
 
     except ValueError:
         raise
 
     except Exception as error:
 
-        raise ValueError(
-            "Unable to read this PDF. Please upload a valid PDF."
-        ) from error
-
-    if not pages:
-
-        raise ValueError(
-            "No readable text was found. "
-            "This may be a scanned PDF requiring OCR."
+        logger.exception(
+            "Failed to ingest PDF: %s",
+            filename
         )
 
-    return ingest_pages(
-        pages=pages,
-        filename=filename,
-        document_id=document_id
-    )
+        raise ValueError(
+            "Unable to read or process this PDF."
+        ) from error
 
 
 # ==================================================
@@ -700,8 +682,6 @@ def main():
     total_chunks = 0
     uploaded_points = 0
 
-    batch = []
-
     for pdf_path in pdf_files:
 
         logger.info(
@@ -716,54 +696,21 @@ def main():
             )
         )
 
-        for page_data in extract_pdf_pages(pdf_path):
-
-            total_pages += 1
-
-            page_text = remove_references(
-                page_data["text"]
-            )
-
-            chunks = create_chunks(page_text)
-
-            for chunk_index, chunk in enumerate(chunks):
-
-                batch.append({
-                    "id": generate_point_id(
-                        document_id,
-                        page_data["page"],
-                        chunk_index,
-                        chunk
-                    ),
-                    "text": chunk,
-                    "source": pdf_path.name,
-                    "page": page_data["page"],
-                    "chunk_index": chunk_index,
-                    "document_id": document_id
-                })
-
-                total_chunks += 1
-
-                if len(batch) >= BATCH_SIZE:
-
-                    uploaded_points += upload_batch(
-                        client,
-                        embedding_model,
-                        batch
-                    )
-
-                    batch.clear()
-
-    if batch:
-
-        uploaded_points += upload_batch(
-            client,
-            embedding_model,
-            batch
+        result = ingest_pages(
+            pages=extract_pdf_pages(pdf_path),
+            filename=pdf_path.name,
+            document_id=document_id,
+            client=client,
+            embedding_model=embedding_model
         )
 
+        total_pages += result["pages"]
+        total_chunks += result["chunks"]
+        uploaded_points += result["chunks"]
+
     logger.info(
-        "Ingestion completed. Pages: %s | Chunks: %s | Uploaded: %s",
+        "Ingestion completed. "
+        "Pages: %s | Chunks: %s | Uploaded: %s",
         total_pages,
         total_chunks,
         uploaded_points
